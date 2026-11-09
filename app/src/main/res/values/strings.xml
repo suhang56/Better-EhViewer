@@ -765,4 +765,20 @@
     <string name="min_rating_count_100">At least 100 ratings</string>
     <string name="min_rating_count_200">At least 200 ratings</string>
     <string name="min_rating_count_500">At least 500 ratings</string>
+    <string name="settings_eh_min_favorite_count">Minimum number of favorites</string>
+    <string name="min_favorite_count_off">Off</string>
+    <string name="min_favorite_count_10">Favorited at least 10 times</string>
+    <string name="min_favorite_count_50">Favorited at least 50 times</string>
+    <string name="min_favorite_count_100">Favorited at least 100 times</string>
+    <string name="min_favorite_count_200">Favorited at least 200 times</string>
+    <string name="min_favorite_count_500">Favorited at least 500 times</string>
+    <string name="min_favorite_count_1000">Favorited at least 1000 times</string>
+    <string name="min_favorite_count_2000">Favorited at least 2000 times</string>
+    <string name="settings_eh_sort_by_favorites">Sort by number of favorites</string>
+    <string name="settings_eh_sort_by_favorites_summary">Sort the loaded results of search results and gallery lists by how often they were favorited. E-Hentai cannot sort by this: the count of every loaded gallery is read from its detail page (about 1.2 s each), then the list is sorted once.</string>
+    <plurals name="gallery_list_sort_favorites_counting">
+        <item quantity="one">Counting favorites of %1$d gallery for sorting (about %2$d s)…</item>
+        <item quantity="other">Counting favorites of %1$d galleries for sorting (about %2$d s)…</item>
+    </plurals>
+    <string name="gallery_list_sort_favorites_done">Sorted by number of favorites</string>
 </resources>

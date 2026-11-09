@@ -32,8 +32,14 @@ object GalleryListProjector {
         val preferredLanguage: String?,
         /** Hide galleries KNOWN to have fewer ratings than this; 0 = off. Unknown counts stay visible. */
         val minRatingCount: Int = 0,
+        /** Hide galleries KNOWN to have been favourited fewer times than this; 0 = off. */
+        val minFavoriteCount: Int = 0,
+        /** Order rows by number of favourites (loaded results only); unknown counts go last. */
+        val sortByFavorites: Boolean = false,
     ) {
-        val isIdentity: Boolean get() = !hideFavorites && !foldVersions && minRatingCount <= 0
+        /** Rating / favourite counts from detail pages are needed. */
+        val needsGalleryStats: Boolean get() = minRatingCount > 0 || minFavoriteCount > 0 || sortByFavorites
+        val isIdentity: Boolean get() = !hideFavorites && !foldVersions && !needsGalleryStats
     }
 
     enum class Role {
@@ -76,7 +82,7 @@ object GalleryListProjector {
         val unknownFavorites: Int,
         val duplicates: Int,
         val foldedAway: Int,
-        /** Galleries hidden because their known rating count is below the minimum. */
+        /** Galleries hidden because a known rating / favourite count is below its minimum. */
         val hiddenLowRatingCount: Int = 0,
         /** Group key to the gids of all its (visible) versions, only for groups of 2 or more. */
         val groupMembers: Map<Long, List<Long>> = emptyMap(),
@@ -110,6 +116,9 @@ object GalleryListProjector {
         newestOf: (Long) -> Long? = { null },
         expandedGids: Set<Long> = emptySet(),
         ratingCountOf: (Long) -> Int? = { null },
+        favoriteCountOf: (Long) -> Int? = { null },
+        /** Sort key (number of favourites) per gid, null = not known yet. Only used with [Options.sortByFavorites]. */
+        sortKeyOf: (Long) -> Int? = { null },
     ): Projection {
         if (options.isIdentity) {
             val rows = ArrayList<Row>(entries.size)
@@ -146,6 +155,10 @@ object GalleryListProjector {
             if (options.minRatingCount > 0) {
                 val count = ratingCountOf(e.gid)
                 if (count != null && count < options.minRatingCount) lowRatedGids += e.gid
+            }
+            if (options.minFavoriteCount > 0) {
+                val count = favoriteCountOf(e.gid)
+                if (count != null && count < options.minFavoriteCount) lowRatedGids += e.gid
             }
             candidates += i
         }
@@ -201,6 +214,8 @@ object GalleryListProjector {
             }
         }
 
+        if (options.sortByFavorites) sortBlocks(rows, sortKeyOf)
+
         // Raw index -> row: a raw item maps to the row representing it, otherwise to the next shown row.
         val map = IntArray(entries.size) { -1 }
         rows.forEachIndexed { r, row -> map[row.rawIndex] = r }
@@ -218,6 +233,27 @@ object GalleryListProjector {
         }
         fillForward(map, rows.size)
         return Projection(rows, map, hidden, unknown, duplicates, foldedAway, lowRated, groupMembers)
+    }
+
+    /**
+     * Sorts top-level rows (with the expanded versions that follow them) by [sortKeyOf] descending.
+     * Rows without a key keep their original order after all known ones. Stable.
+     */
+    private fun sortBlocks(rows: MutableList<Row>, sortKeyOf: (Long) -> Int?) {
+        val blocks = ArrayList<List<Row>>()
+        var current = ArrayList<Row>()
+        rows.forEach { row ->
+            if (row.role != Role.MEMBER && current.isNotEmpty()) {
+                blocks += current
+                current = ArrayList()
+            }
+            current += row
+        }
+        if (current.isNotEmpty()) blocks += current
+        val keyed = blocks.map { it to sortKeyOf(it[0].gid) }
+        val sorted = keyed.filter { it.second != null }.sortedByDescending { it.second!! } + keyed.filter { it.second == null }
+        rows.clear()
+        sorted.forEach { rows += it.first }
     }
 
     private fun fixRawMap(map: IntArray, entries: List<GalleryEntry?>, rows: List<Row>) {

@@ -188,13 +188,33 @@ class GalleryListScene :
 
     private val mFavoriteDataListener = GalleryListFeatures.Listener {
         val controller = mListController ?: return@Listener
-        if (controller.isActive && (controller.options.hideFavorites || controller.options.minRatingCount > 0)) {
+        if (controller.isActive && (controller.options.hideFavorites || controller.options.needsGalleryStats)) {
             controller.refreshWithDiff()
             mHelper?.onProjectionChanged()
         }
     }
 
     private val mRequestRatingCountsRunnable = Runnable { requestRatingCountsForVisibleRows() }
+
+    /** The "counting favourites for sorting" hint was shown for the current list. */
+    private var mSortProgressShown = false
+    private var mLastSortPending = 0
+
+    /** Tells the user when sorting by favourites has to wait for counts, and when it is done. */
+    private fun updateSortProgress(controller: ProjectedListController) {
+        if (!controller.isActive || !controller.options.sortByFavorites) return
+        val pending = controller.sortPendingCount
+        val context = context ?: return
+        if (pending > 0 && !mSortProgressShown) {
+            mSortProgressShown = true
+            // One lookup every 1.2 s.
+            val seconds = (pending * 6 + 4) / 5
+            Toast.makeText(context, resources.getQuantityString(R.plurals.gallery_list_sort_favorites_counting, pending, pending, seconds), Toast.LENGTH_LONG).show()
+        } else if (pending == 0 && mLastSortPending > 0) {
+            Toast.makeText(context, R.string.gallery_list_sort_favorites_done, Toast.LENGTH_SHORT).show()
+        }
+        mLastSortPending = pending
+    }
 
     /**
      * Asks for the rating counts of the galleries on screen (plus a few below), nearest first.
@@ -207,23 +227,30 @@ class GalleryListScene :
         // Only a list that is really on screen may cause lookups: not while loading a new search,
         // showing a tip/error, or with the search panel open.
         if (controller == null || helper == null || layoutManager == null || !controller.isActive ||
-            controller.options.minRatingCount <= 0 || !isResumed || helper.shownViewIndex != 0 ||
+            !controller.options.needsGalleryStats || !isResumed || helper.shownViewIndex != 0 ||
             mState == STATE_SEARCH || controller.size() == 0
         ) {
-            GalleryListFeatures.clearRatingCountRequests()
+            GalleryListFeatures.clearGalleryStatsRequests()
             return
         }
         val first = LayoutManagerUtils.getFirstVisibleItemPosition(layoutManager).coerceAtLeast(0)
         val last = LayoutManagerUtils.getLastVisibleItemPosition(layoutManager)
         if (last < 0) {
-            GalleryListFeatures.clearRatingCountRequests()
+            GalleryListFeatures.clearGalleryStatsRequests()
             return
         }
         val end = (last + RATING_COUNT_LOOKAHEAD).coerceAtMost(controller.size() - 1)
-        val items = (first..end).mapNotNull { row ->
+        // Sorting needs every listed gallery: on-screen rows first, then the rest from the top.
+        val rows = if (controller.options.sortByFavorites) {
+            (first..end).toList() + (0 until controller.size()).filter { it !in first..end }
+        } else {
+            (first..end).toList()
+        }
+        val items = rows.mapNotNull { row ->
             helper.getDataAtEx(controller.dataIndex(row))?.let { it.gid to it.token }
         }
-        GalleryListFeatures.requestRatingCounts(items)
+        GalleryListFeatures.requestGalleryStats(items)
+        updateSortProgress(controller)
     }
 
     private val mOnScrollListener: RecyclerView.OnScrollListener =
@@ -241,7 +268,7 @@ class GalleryListScene :
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 // Fast-scroller drags, jumps and expanding groups move the visible rows without a
                 // scroll-idle event: ask for their rating counts once things settle.
-                if ((mListController?.options?.minRatingCount ?: 0) > 0) {
+                if (mListController?.options?.needsGalleryStats == true) {
                     recyclerView.removeCallbacks(mRequestRatingCountsRunnable)
                     recyclerView.postDelayed(mRequestRatingCountsRunnable, RATING_COUNT_REQUEST_DEBOUNCE_MS)
                 }
@@ -348,7 +375,7 @@ class GalleryListScene :
         val localChanged = GalleryListFeatures.reloadLocalFavorites()
         if (controller.reloadOptions()) {
             controller.refreshAll()
-        } else if (controller.isActive && (controller.options.hideFavorites || controller.options.minRatingCount > 0)) {
+        } else if (controller.isActive && (controller.options.hideFavorites || controller.options.needsGalleryStats)) {
             // Favourites / rating counts may also have changed while this view was destroyed.
             controller.refreshWithDiff()
         } else if (localChanged) {
@@ -360,7 +387,7 @@ class GalleryListScene :
     override fun onPause() {
         super.onPause()
         // Only the list on screen may cause rating count lookups.
-        GalleryListFeatures.clearRatingCountRequests()
+        GalleryListFeatures.clearGalleryStatsRequests()
     }
 
     private fun onInit() {
@@ -1678,7 +1705,9 @@ class GalleryListScene :
             mInFlightTaskId = taskId
             if (type == TYPE_REFRESH || type == TYPE_SOMEWHERE) {
                 // A new list replaces this one: its galleries are no longer wanted.
-                GalleryListFeatures.clearRatingCountRequests()
+                GalleryListFeatures.clearGalleryStatsRequests()
+                mListController?.resetSort()
+                mSortProgressShown = false
             }
             if (type != TYPE_NEXT_PAGE_KEEP_POS) {
                 // Refresh, jump, previous page: user actions restore the auto-load budget.
@@ -1837,7 +1866,7 @@ class GalleryListScene :
                 isProjectionTipShown = true
             }
             // The visible rows changed: update which rating counts are wanted once laid out.
-            if (controller.isActive && controller.options.minRatingCount > 0) {
+            if (controller.isActive && controller.options.needsGalleryStats) {
                 mRecyclerView?.post { requestRatingCountsForVisibleRows() }
             }
             if (controller.isActive && controller.unknownFavorites > 0) {

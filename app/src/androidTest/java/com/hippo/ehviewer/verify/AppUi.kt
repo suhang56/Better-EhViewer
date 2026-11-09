@@ -71,7 +71,7 @@ internal object AppUi {
     }
 
     /** Settings that skip sign-in, site selection and first-run dialogs, plus the feature switches. */
-    fun prepare(hide: Boolean, fold: Boolean, listMode: Int, minRatingCount: Int = 0) {
+    fun prepare(hide: Boolean, fold: Boolean, listMode: Int, minRatingCount: Int = 0, minFavoriteCount: Int = 0, sortByFavorites: Boolean = false) {
         Live.setUpGuest()
         Settings.putAppLinkVerifyTip(true)
         Settings.putGuideGallery(false)
@@ -81,6 +81,8 @@ internal object AppUi {
             .putString(Settings.KEY_FOLD_PREFERRED_LANGUAGE, Settings.FOLD_PREFERRED_LANGUAGE_AUTO)
             .putString(Settings.KEY_LIST_MODE, listMode.toString())
             .putString(Settings.KEY_MIN_RATING_COUNT, minRatingCount.toString())
+            .putString(Settings.KEY_MIN_FAVORITE_COUNT, minFavoriteCount.toString())
+            .putBoolean(Settings.KEY_SORT_BY_FAVORITES, sortByFavorites)
             .commit()
     }
 

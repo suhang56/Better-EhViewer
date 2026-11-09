@@ -691,4 +691,19 @@
     <string name="min_rating_count_100">至少 100 人評分</string>
     <string name="min_rating_count_200">至少 200 人評分</string>
     <string name="min_rating_count_500">至少 500 人評分</string>
+    <string name="settings_eh_min_favorite_count">最少收藏次數</string>
+    <string name="min_favorite_count_off">關閉</string>
+    <string name="min_favorite_count_10">至少被收藏 10 次</string>
+    <string name="min_favorite_count_50">至少被收藏 50 次</string>
+    <string name="min_favorite_count_100">至少被收藏 100 次</string>
+    <string name="min_favorite_count_200">至少被收藏 200 次</string>
+    <string name="min_favorite_count_500">至少被收藏 500 次</string>
+    <string name="min_favorite_count_1000">至少被收藏 1000 次</string>
+    <string name="min_favorite_count_2000">至少被收藏 2000 次</string>
+    <string name="settings_eh_sort_by_favorites">依收藏次數排序</string>
+    <string name="settings_eh_sort_by_favorites_summary">將搜尋結果和畫廊列表中已載入的結果依被收藏次數由多到少排序。E 站本身不支援依此排序，需要逐一讀取已載入畫廊的詳情頁（每個約 1.2 秒），全部讀取完成後一次性排序。</string>
+    <plurals name="gallery_list_sort_favorites_counting">
+        <item quantity="other">正在取得 %1$d 個畫廊的收藏次數用於排序（約 %2$d 秒）…</item>
+    </plurals>
+    <string name="gallery_list_sort_favorites_done">已依收藏次數排序</string>
 </resources>

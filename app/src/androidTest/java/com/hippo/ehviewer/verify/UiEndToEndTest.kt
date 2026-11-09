@@ -403,7 +403,7 @@ class UiEndToEndTest {
         r.check(stillShown.isEmpty(), "every looked-up gallery (all below 100000 ratings) is hidden: still shown $stillShown")
         // A gallery is hidden exactly when its count is known (looked up now, or cached earlier, e.g. by
         // the rating count test or a detail page opened in step 1): all known counts are < 100000.
-        val known = initial.filter { GalleryListFeatures.ratingCounts.countOf(it) != null }
+        val known = initial.filter { GalleryListFeatures.galleryStats.ratingCountOf(it) != null }
         val cachedBefore = known.filter { it !in gids }
         r.fact("first page: ${gids.count { it in initial }} looked up now, ${cachedBefore.size} known from the cache, ${initial.size - known.size} unknown")
         r.check(initial.filter { it !in rowsNow } == known, "of the first page exactly the galleries with a known count are hidden: ${initial.size} -> ${initial.count { it in rowsNow }}")
@@ -424,6 +424,56 @@ class UiEndToEndTest {
         val offMarker = Logcat.mark()
         Thread.sleep(5_000)
         r.check(Logcat.ratingLookupsSince(offMarker).isEmpty(), "no lookups when the filter is off")
+    }
+
+    // ------------------------------------------------------------------ (7) sort by / minimum number of favourites
+
+    @Test
+    fun step7SortByFavorites() = uiTest("step7SortByFavorites") { r ->
+        val url = Live.searchUrl("artist:shindol$")
+        AppUi.prepare(hide = false, fold = false, listMode = AppUi.LIST_MODE_LIST, sortByFavorites = true)
+        val page = Live.fetchList(r, url).galleryInfoList.map { it.gid }
+        val marker = Logcat.mark()
+        AppUi.launch(url)
+        if (!AppUi.waitForRows(r, 1)) r.fail("gallery list did not load")
+        val stats = GalleryListFeatures.galleryStats
+        fun favorites(gids: List<Long>) = gids.map { stats.favoriteCountOf(it) }
+        // Sorted once every listed gallery has a count: at most ~1.2 s per gallery.
+        val sorted = AppUi.waitUntil(page.size * 1500L + 20_000, 1000) {
+            val rows = AppUi.rows().map { it.gid }
+            val counts = favorites(rows)
+            rows.isNotEmpty() && counts.all { it != null } && counts.zipWithNext().all { (a, b) -> a!! >= b!! }
+        }
+        val rows = AppUi.rows().map { it.gid }
+        r.fact("rows: ${rows.size}; favourite counts in list order: ${favorites(rows)}")
+        r.check(sorted, "the list ends up sorted by number of favourites, highest first")
+        r.check(rows.toSet() == page.toSet(), "sorting keeps exactly the galleries of the page (${rows.size} vs ${page.size})")
+        val lookups = Logcat.ratingLookupsSince(marker)
+        val gaps = lookups.zipWithNext { a, b -> clockMs(b.first) - clockMs(a.first) }
+        r.fact("detail page lookups for sorting: ${lookups.size}, gaps $gaps")
+        r.check(gaps.all { it >= 1000 }, "lookups are spaced at least 1 s apart")
+        r.check(lookups.map { it.second }.toSet().size == lookups.size, "no gallery was looked up twice")
+        r.check(page.containsAll(lookups.map { it.second }), "only galleries of this list were looked up")
+        val top = page.maxByOrNull { stats.favoriteCountOf(it) ?: -1 }
+        r.check(rows.firstOrNull() == top, "the most favourited gallery ($top, ${stats.favoriteCountOf(top ?: 0)}) is first")
+
+        // Minimum number of favourites: the median of this page.
+        val counts = favorites(page).filterNotNull().sorted()
+        val threshold = counts[counts.size / 2].coerceAtLeast(1)
+        PreferenceManager.getDefaultSharedPreferences(AppUi.context).edit()
+            .putString(Settings.KEY_MIN_FAVORITE_COUNT, threshold.toString())
+            .commit()
+        AppUi.leaveAndReturn()
+        val filtered = AppUi.waitUntil(15_000) { AppUi.rows().all { (stats.favoriteCountOf(it.gid) ?: 0) >= threshold } }
+        val kept = AppUi.rows().map { it.gid }
+        r.fact("min favourites $threshold: ${kept.size} of ${page.size} kept: ${favorites(kept)}")
+        r.check(filtered && kept.isNotEmpty(), "only galleries favourited at least $threshold times are listed")
+        r.check(kept.size == page.count { (stats.favoriteCountOf(it) ?: 0) >= threshold }, "every gallery reaching the threshold is still listed")
+
+        PreferenceManager.getDefaultSharedPreferences(AppUi.context).edit()
+            .putString(Settings.KEY_MIN_FAVORITE_COUNT, "0")
+            .putBoolean(Settings.KEY_SORT_BY_FAVORITES, false)
+            .commit()
     }
 
     companion object {

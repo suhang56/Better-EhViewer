@@ -29,34 +29,37 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-/** Number of ratings of a gallery, read from its detail page. Keyed by gallery id. */
-@Entity(tableName = "RATING_COUNTS")
-data class RatingCountInfo(
+/** Number of ratings and of favourites of a gallery, read from its detail page. Keyed by gallery id. */
+@Entity(tableName = "GALLERY_STATS")
+data class GalleryStatsInfo(
     @PrimaryKey
     @ColumnInfo(name = "GID")
     val gid: Long,
-    @ColumnInfo(name = "COUNT")
-    val count: Int,
+    @ColumnInfo(name = "RATING_COUNT")
+    val ratingCount: Int?,
+    @ColumnInfo(name = "FAVORITE_COUNT")
+    val favoriteCount: Int?,
     @ColumnInfo(name = "FETCHED_AT")
     val fetchedAt: Long,
 )
 
 @Dao
-interface RatingCountsDao {
-    @Query("SELECT * FROM RATING_COUNTS")
-    fun list(): List<RatingCountInfo>
+interface GalleryStatsDao {
+    @Query("SELECT * FROM GALLERY_STATS")
+    fun list(): List<GalleryStatsInfo>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsert(list: List<RatingCountInfo>)
+    fun upsert(list: List<GalleryStatsInfo>)
 }
 
 /**
  * Cache of per-gallery statistics that the gallery list does not provide. Its own file, like
  * the cloud favourites cache: derived data, never part of eh.db export / import.
  */
-@Database(entities = [RatingCountInfo::class], version = 1, exportSchema = false)
+// Version 2 replaced the rating-count-only table; it is a cache, so the old one is simply dropped.
+@Database(entities = [GalleryStatsInfo::class], version = 2, exportSchema = false)
 abstract class GalleryStatsDatabase : RoomDatabase() {
-    abstract fun ratingCountsDao(): RatingCountsDao
+    abstract fun galleryStatsDao(): GalleryStatsDao
 }
 
 fun buildGalleryStatsDB(context: Context): GalleryStatsDatabase = Room.databaseBuilder(context, GalleryStatsDatabase::class.java, "gallery_stats.db")

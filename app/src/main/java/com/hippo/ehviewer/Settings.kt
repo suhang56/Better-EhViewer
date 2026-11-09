@@ -90,6 +90,8 @@ object Settings {
     const val FOLD_PREFERRED_LANGUAGE_NONE = "none"
     const val KEY_CLOUD_FAVORITES_SYNC = "cloud_favorites_sync"
     const val KEY_MIN_RATING_COUNT = "min_rating_count"
+    const val KEY_MIN_FAVORITE_COUNT = "min_favorite_count"
+    const val KEY_SORT_BY_FAVORITES = "sort_by_favorites"
     private const val KEY_RATING_LOOKUP_RECENT = "rating_lookup_recent"
     private const val KEY_RATING_LOOKUP_BLOCKED_UNTIL = "rating_lookup_blocked_until"
     private const val DEFAULT_MIN_RATING_COUNT = 0
@@ -500,6 +502,14 @@ object Settings {
     /** Hide galleries with fewer ratings than this in gallery lists; 0 = off. */
     val minRatingCount: Int
         get() = getIntFromStr(KEY_MIN_RATING_COUNT, DEFAULT_MIN_RATING_COUNT).coerceAtLeast(0)
+
+    /** Hide galleries favourited fewer times than this in gallery lists; 0 = off. */
+    val minFavoriteCount: Int
+        get() = getIntFromStr(KEY_MIN_FAVORITE_COUNT, 0).coerceAtLeast(0)
+
+    /** Sort the loaded results of gallery lists by number of favourites. */
+    val sortByFavorites: Boolean
+        get() = getBoolean(KEY_SORT_BY_FAVORITES, false)
 
     /** Rating-count lookup throttle state, kept across restarts: "t1,t2,..." and a pause end. */
     var ratingLookupRecent: String?

@@ -681,4 +681,19 @@
     <string name="min_rating_count_100">100 人以上が評価</string>
     <string name="min_rating_count_200">200 人以上が評価</string>
     <string name="min_rating_count_500">500 人以上が評価</string>
+    <string name="settings_eh_min_favorite_count">最低お気に入り数</string>
+    <string name="min_favorite_count_off">オフ</string>
+    <string name="min_favorite_count_10">10 回以上お気に入り登録</string>
+    <string name="min_favorite_count_50">50 回以上お気に入り登録</string>
+    <string name="min_favorite_count_100">100 回以上お気に入り登録</string>
+    <string name="min_favorite_count_200">200 回以上お気に入り登録</string>
+    <string name="min_favorite_count_500">500 回以上お気に入り登録</string>
+    <string name="min_favorite_count_1000">1000 回以上お気に入り登録</string>
+    <string name="min_favorite_count_2000">2000 回以上お気に入り登録</string>
+    <string name="settings_eh_sort_by_favorites">お気に入り数で並べ替え</string>
+    <string name="settings_eh_sort_by_favorites_summary">検索結果とギャラリー一覧の読み込み済みの結果を、お気に入り登録数の多い順に並べ替えます。E-Hentai はこの並べ替えに対応していないため、読み込み済みの各ギャラリーの詳細ページを読み取り（1 件約 1.2 秒）、すべて揃ってから一度に並べ替えます。</string>
+    <plurals name="gallery_list_sort_favorites_counting">
+        <item quantity="other">並べ替えのため %1$d 件のお気に入り数を取得中（約 %2$d 秒）…</item>
+    </plurals>
+    <string name="gallery_list_sort_favorites_done">お気に入り数で並べ替えました</string>
 </resources>

@@ -49,31 +49,56 @@ internal class ProjectedListController(
     val unknownFavorites: Int get() = if (isActive) current().unknownFavorites else 0
     val hiddenCount: Int get() = if (isActive) current().let { it.hiddenFavorites + it.foldedAway + it.duplicates + it.hiddenLowRatingCount } else 0
 
+    /** Favourites-sort progress: galleries still to count (call after the rows were computed). */
+    val sortPendingCount: Int get() = if (isActive && options.sortByFavorites) current().let { sortPending } else 0
+
     private fun current(): GalleryListProjector.Projection = projection ?: compute().also { projection = it }
+
+    /**
+     * Favourite counts the current order is based on. Sorting is applied only when EVERY listed
+     * gallery has a known count, so rows do not jump each time one count arrives; galleries
+     * added later (next pages) stay at the end until they are all counted too.
+     */
+    private var sortSnapshot: Map<Long, Int> = emptyMap()
+
+    /** Listed galleries whose favourite count is still unknown while sorting (0 = sorted). */
+    var sortPending: Int = 0
+        private set
 
     private fun compute(): GalleryListProjector.Projection {
         val raw = data()
         val entries = raw.map { it?.let(GalleryListFeatures::toEntry) }
         val resolver = if (options.hideFavorites) GalleryListFeatures.newResolver() else null
         val chains = GalleryListFeatures.versionChains
-        val ratingCounts = GalleryListFeatures.ratingCounts
-        return GalleryListProjector.project(
+        val stats = GalleryListFeatures.galleryStats
+        // Never read the database on the main thread: counts are unknown until loaded in the background.
+        val statsLoaded = !options.needsGalleryStats || stats.isLoaded || false.also { GalleryListFeatures.ensureGalleryStatsLoaded() }
+        fun project(opts: GalleryListProjector.Options) = GalleryListProjector.project(
             entries = entries,
-            options = options,
+            options = opts,
             favoriteState = { gid -> resolver?.resolve(gid) ?: FavoriteState.NOT_FAVORITED },
             chainRootOf = chains::rootOf,
             newestOf = chains::newestOf,
             expandedGids = expandedGids,
-            ratingCountOf = { gid ->
-                when {
-                    options.minRatingCount <= 0 -> null
-                    // Never read the database on the main thread: unknown until loaded in the background.
-                    !ratingCounts.isLoaded -> null.also { GalleryListFeatures.ensureRatingCountsLoaded() }
-                    // Stale low counts count as unknown, so the gallery is shown and re-checked.
-                    else -> ratingCounts.knownCountOf(gid, options.minRatingCount)
-                }
-            },
+            // Stale low counts count as unknown, so the gallery is shown and re-checked.
+            ratingCountOf = { gid -> if (opts.minRatingCount > 0 && statsLoaded) stats.knownRatingCount(gid, opts.minRatingCount) else null },
+            favoriteCountOf = { gid -> if (opts.minFavoriteCount > 0 && statsLoaded) stats.knownFavoriteCount(gid, opts.minFavoriteCount) else null },
+            sortKeyOf = { gid -> sortSnapshot[gid] },
         )
+        if (!options.sortByFavorites) {
+            sortPending = 0
+            return project(options)
+        }
+        val unsorted = project(options.copy(sortByFavorites = false))
+        val counts = unsorted.rows.map { row -> row.gid to (if (statsLoaded) stats.favoriteCountOf(row.gid) else null) }
+        sortPending = counts.count { it.second == null }
+        if (sortPending == 0) sortSnapshot = counts.associate { it.first to it.second!! }
+        return project(options)
+    }
+
+    /** A new list replaces the data: forget the previous list's sort order. */
+    fun resetSort() {
+        sortSnapshot = emptyMap()
     }
 
     /** Re-reads the settings. Returns true if they changed (the caller should then [refreshAll]). */
@@ -82,6 +107,7 @@ internal class ProjectedListController(
         if (new == options) return false
         options = new
         expandedGids.clear()
+        sortSnapshot = emptyMap()
         projection = null
         return true
     }
@@ -151,7 +177,8 @@ internal class ProjectedListController(
                         a.expanded == b.expanded && a.favoriteState == b.favoriteState
                 }
             },
-            false,
+            // Sorting moves rows: detect moves so they animate instead of being removed and re-added.
+            options.sortByFavorites,
         ).dispatchUpdatesTo(adapter)
     }
 

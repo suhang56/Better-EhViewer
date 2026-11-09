@@ -26,7 +26,8 @@ import org.junit.runner.RunWith
 
 /**
  * The "minimum number of ratings" filter reads the count from detail pages with a regex
- * (EhEngine.getRatingCount). Compare it with the app's full detail page parser on live pages.
+ * (EhEngine.getGalleryStats, which also reads the favourite count). Compare both with the app's
+ * full detail page parser on live pages.
  */
 @RunWith(AndroidJUnit4::class)
 class RatingCountLiveTest {
@@ -42,12 +43,16 @@ class RatingCountLiveTest {
         r.check(list.size >= 4, "live list has galleries (${list.size})")
         list.take(4).forEach { gi ->
             Thread.sleep(1500)
-            val looked = runCatching { runBlocking { EhEngine.getRatingCount(gi.gid, gi.token) } }
+            val looked = runCatching { runBlocking { EhEngine.getGalleryStats(gi.gid, gi.token) } }
             Thread.sleep(1500)
             val detail = Live.fetchDetailOrNull(r, gi.gid, gi.token!!)
-            r.fact("gid ${gi.gid}: lookup=${looked.getOrNull()} (${looked.exceptionOrNull()?.javaClass?.simpleName ?: "ok"}), detail page ratingCount=${detail?.ratingCount}")
-            r.check(looked.isSuccess && looked.getOrNull() != null, "rating count lookup of ${gi.gid} returned a number")
-            if (detail != null) r.check(looked.getOrNull() == detail.ratingCount, "lookup of ${gi.gid} equals the detail page parser (${looked.getOrNull()} vs ${detail.ratingCount})")
+            val stats = looked.getOrNull()
+            r.fact("gid ${gi.gid}: lookup=$stats (${looked.exceptionOrNull()?.javaClass?.simpleName ?: "ok"}), detail page ratingCount=${detail?.ratingCount} favoriteCount=${detail?.favoriteCount}")
+            r.check(stats?.ratingCount != null && stats.favoriteCount != null, "lookup of ${gi.gid} returned both counts")
+            if (detail != null) {
+                r.check(stats?.ratingCount == detail.ratingCount, "rating count of ${gi.gid} equals the detail page parser (${stats?.ratingCount} vs ${detail.ratingCount})")
+                r.check(stats?.favoriteCount == detail.favoriteCount, "favourite count of ${gi.gid} equals the detail page parser (${stats?.favoriteCount} vs ${detail.favoriteCount})")
+            }
         }
         r.assertAll()
     }

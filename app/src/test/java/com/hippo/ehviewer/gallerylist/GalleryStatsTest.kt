@@ -23,11 +23,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class RatingCountTest {
-    private class MemoryPersistence : RatingCountCache.Persistence {
-        val rows = HashMap<Long, RatingCountCache.Entry>()
+class GalleryStatsTest {
+    private class MemoryPersistence : GalleryStatsCache.Persistence {
+        val rows = HashMap<Long, GalleryStatsCache.Entry>()
         override fun loadAll() = HashMap(rows)
-        override fun upsert(entries: Collection<RatingCountCache.Entry>) {
+        override fun upsert(entries: Collection<GalleryStatsCache.Entry>) {
             entries.forEach { rows[it.gid] = it }
         }
     }
@@ -41,22 +41,22 @@ class RatingCountTest {
 
     @Test
     fun parsesRatingCountFromRealDetailPage() {
-        assertEquals(116, RatingCountParser.parse(realDetailSnippet))
-        assertEquals(12345, RatingCountParser.parse("""<span id="rating_count">12,345</span>"""))
-        assertNull(RatingCountParser.parse("<html><body>Gallery Not Available - This gallery has been removed</body></html>"))
+        assertEquals(116, GalleryStatsParser.parse(realDetailSnippet)?.ratingCount)
+        assertEquals(12345, GalleryStatsParser.parse("""<span id="rating_count">12,345</span>""")?.ratingCount)
+        assertNull(GalleryStatsParser.parse("<html><body>Gallery Not Available - This gallery has been removed</body></html>")?.ratingCount)
     }
 
-    @Test(expected = RatingCountParser.BannedException::class)
+    @Test(expected = GalleryStatsParser.BannedException::class)
     fun banPageIsReported() {
-        RatingCountParser.parse(
+        GalleryStatsParser.parse(
             "Your IP address has been temporarily banned for excessive pageloads which indicates that you are " +
                 "using automated mirroring/harvesting software. The ban expires in 59 minutes and 30 seconds",
         )
     }
 
-    @Test(expected = RatingCountParser.BannedException::class)
+    @Test(expected = GalleryStatsParser.BannedException::class)
     fun emptyBodyIsTreatedAsBan() {
-        RatingCountParser.parse("")
+        GalleryStatsParser.parse("")
     }
 
     // ------------------------------------------------------------------ cache
@@ -64,30 +64,30 @@ class RatingCountTest {
     @Test
     fun countsReachingThresholdAreNeverFetchedAgain() {
         var now = 1_000L
-        val cache = RatingCountCache(MemoryPersistence(), clock = { now })
-        assertTrue(cache.needsLookup(1, 50))
-        cache.record(1, 80)
+        val cache = GalleryStatsCache(MemoryPersistence(), clock = { now })
+        assertTrue(cache.needsLookup(1, GalleryStatsCache.Need(minRatingCount = 50)))
+        cache.record(1, 80, null)
         now += 365L * 24 * 60 * 60 * 1000
-        assertFalse("80 >= 50 stays true forever (counts only grow)", cache.needsLookup(1, 50))
-        assertTrue("a higher threshold needs a new check once stale", cache.needsLookup(1, 100))
+        assertFalse("80 >= 50 stays true forever (counts only grow)", cache.needsLookup(1, GalleryStatsCache.Need(minRatingCount = 50)))
+        assertTrue("a higher threshold needs a new check once stale", cache.needsLookup(1, GalleryStatsCache.Need(minRatingCount = 100)))
     }
 
     @Test
     fun belowThresholdIsRecheckedOnlyAfterAWeek() {
         var now = 1_000L
-        val cache = RatingCountCache(MemoryPersistence(), clock = { now })
-        cache.record(2, 3)
-        assertFalse(cache.needsLookup(2, 50))
-        now += RatingCountCache.RECHECK_AFTER_MS + 1
-        assertTrue(cache.needsLookup(2, 50))
-        assertFalse("filter off: nothing to look up", cache.needsLookup(3, 0))
+        val cache = GalleryStatsCache(MemoryPersistence(), clock = { now })
+        cache.record(2, 3, null)
+        assertFalse(cache.needsLookup(2, GalleryStatsCache.Need(minRatingCount = 50)))
+        now += GalleryStatsCache.RECHECK_AFTER_MS + 1
+        assertTrue(cache.needsLookup(2, GalleryStatsCache.Need(minRatingCount = 50)))
+        assertFalse("filter off: nothing to look up", cache.needsLookup(3, GalleryStatsCache.Need(minRatingCount = 0)))
     }
 
     @Test
     fun cacheSurvivesReload() {
         val persistence = MemoryPersistence()
-        RatingCountCache(persistence, clock = { 5L }).record(7, 42)
-        assertEquals(42, RatingCountCache(persistence).countOf(7))
+        GalleryStatsCache(persistence, clock = { 5L }).record(7, 42, null)
+        assertEquals(42, GalleryStatsCache(persistence).ratingCountOf(7))
     }
 
     // ------------------------------------------------------------------ throttle
@@ -168,16 +168,16 @@ class RatingCountTest {
     @Test
     fun staleLowCountIsTreatedAsUnknownAndRechecked() {
         var now = 1_000L
-        val cache = RatingCountCache(MemoryPersistence(), clock = { now })
-        cache.record(5, 2)
-        assertEquals(2, cache.knownCountOf(5, 50))
-        now += RatingCountCache.RECHECK_AFTER_MS + 1
+        val cache = GalleryStatsCache(MemoryPersistence(), clock = { now })
+        cache.record(5, 2, null)
+        assertEquals(2, cache.knownRatingCount(5, 50))
+        now += GalleryStatsCache.RECHECK_AFTER_MS + 1
         // Stale and below the threshold: shown again (unknown) so it can be looked up when visible.
-        assertNull(cache.knownCountOf(5, 50))
-        assertTrue(cache.needsLookup(5, 50))
-        cache.record(6, 900)
-        now += 10L * RatingCountCache.RECHECK_AFTER_MS
-        assertEquals(900, cache.knownCountOf(6, 50))
+        assertNull(cache.knownRatingCount(5, 50))
+        assertTrue(cache.needsLookup(5, GalleryStatsCache.Need(minRatingCount = 50)))
+        cache.record(6, 900, null)
+        now += 10L * GalleryStatsCache.RECHECK_AFTER_MS
+        assertEquals(900, cache.knownRatingCount(6, 50))
     }
 
     @Test
@@ -211,10 +211,10 @@ class RatingCountTest {
     @Test
     fun slowDownPageIsReported() {
         try {
-            RatingCountParser.parse("You are opening pages too fast, thus placing a heavy load on the server. Back down, or your IP address will be automatically banned.")
+            GalleryStatsParser.parse("You are opening pages too fast, thus placing a heavy load on the server. Back down, or your IP address will be automatically banned.")
             throw AssertionError("expected BannedException")
-        } catch (e: RatingCountParser.BannedException) {
-            assertEquals(RatingCountParser.SLOW_DOWN_PAUSE_MS, e.pauseMs)
+        } catch (e: GalleryStatsParser.BannedException) {
+            assertEquals(GalleryStatsParser.SLOW_DOWN_PAUSE_MS, e.pauseMs)
         }
     }
 
@@ -239,5 +239,90 @@ class RatingCountTest {
             ratingCountOf = { if (it == 13L) 2 else 500 },
         )
         assertEquals(listOf(10L), p.rows.map { it.gid })
+    }
+
+    // ------------------------------------------------------------------ favourites
+
+    @Test
+    fun parsesFavoriteCount() {
+        val page = """<tr><td class="gdt1">Favorited:</td><td class="gdt2" id="favcount">1,234 times</td></tr>""" + realDetailSnippet
+        assertEquals(GalleryStatsParser.Stats(116, 1234), GalleryStatsParser.parse(page))
+        assertEquals(0, GalleryStatsParser.parse("""<td class="gdt1">Favorited:</td><td class="gdt2">Never</td>""")?.favoriteCount)
+        assertEquals(1, GalleryStatsParser.parse("""<td class="gdt1">Favorited:</td><td class="gdt2">Once</td>""")?.favoriteCount)
+        assertEquals(57, GalleryStatsParser.parse("""<td class="gdt1">Favorited:</td><td class="gdt2" id="favcount">57 times</td>""")?.favoriteCount)
+    }
+
+    @Test
+    fun recordMergesAndKeepsKnownValues() {
+        var now = 100L
+        val cache = GalleryStatsCache(MemoryPersistence(), clock = { now })
+        cache.record(1, 10, 200)
+        now = 500
+        cache.record(1, 12, null) // rating only (e.g. after rating the gallery)
+        assertEquals(GalleryStatsCache.Entry(1, 12, 200, 100), cache.entryOf(1))
+        assertFalse(cache.needsLookup(1, GalleryStatsCache.Need(minRatingCount = 5, minFavoriteCount = 50, sortByFavorites = true)))
+        assertTrue("favourite count unknown for gid 2", cache.needsLookup(2, GalleryStatsCache.Need(sortByFavorites = true)))
+        cache.record(3, 4, null)
+        assertTrue("only the rating count is known", cache.needsLookup(3, GalleryStatsCache.Need(minFavoriteCount = 10)))
+    }
+
+    @Test
+    fun sortCountsAreRefreshedAfterAMonth() {
+        var now = 1L
+        val cache = GalleryStatsCache(MemoryPersistence(), clock = { now })
+        cache.record(1, 10, 300)
+        now += GalleryStatsCache.RECHECK_AFTER_MS + 1
+        assertFalse(cache.needsLookup(1, GalleryStatsCache.Need(sortByFavorites = true)))
+        now += GalleryStatsCache.SORT_REFRESH_AFTER_MS
+        assertTrue(cache.needsLookup(1, GalleryStatsCache.Need(sortByFavorites = true)))
+    }
+
+    private fun sortOptions(fold: Boolean = false, minFavorites: Int = 0) = GalleryListProjector.Options(hideFavorites = false, foldVersions = fold, preferredLanguage = "ZH", minFavoriteCount = minFavorites, sortByFavorites = true)
+
+    @Test
+    fun sortsByFavoritesUnknownLastInOriginalOrder() {
+        val list = listOf(entry(1, "[A] One"), entry(2, "[A] Two"), entry(3, "[A] Three"), entry(4, "[A] Four"), entry(5, "[A] Five"))
+        val keys = mapOf(2L to 10, 4L to 500, 5L to 10)
+        val p = GalleryListProjector.project(list, sortOptions(), { FavoriteState.NOT_FAVORITED }, sortKeyOf = { keys[it] })
+        assertEquals(listOf(4L, 2L, 5L, 1L, 3L), p.rows.map { it.gid })
+        // Every row still displays its own gallery and raw positions map back to it.
+        p.rows.forEachIndexed { r, row ->
+            assertEquals(row.gid, list[p.rowToRaw(r)].gid)
+            assertEquals(r, p.rawToRow(p.rowToRaw(r)))
+        }
+    }
+
+    @Test
+    fun expandedVersionsMoveWithTheirGroup() {
+        val list = listOf(
+            entry(1, "[Other] Popular Work"),
+            entry(10, "[作者] タイトル"),
+            entry(13, "[Artist] Title [Chinese]", titleJpn = "[作者] タイトル [中国翻訳]", lang = "ZH"),
+        )
+        val keys = mapOf(1L to 5, 13L to 900)
+        val p = GalleryListProjector.project(
+            list,
+            sortOptions(fold = true),
+            { FavoriteState.NOT_FAVORITED },
+            expandedGids = setOf(10L, 13L),
+            sortKeyOf = { keys[it] },
+        )
+        assertEquals(listOf(13L, 10L, 1L), p.rows.map { it.gid })
+        assertEquals(GalleryListProjector.Role.MEMBER, p.rows[1].role)
+    }
+
+    @Test
+    fun minFavoriteCountHidesKnownLowOnly() {
+        val list = listOf(entry(1, "[A] One"), entry(2, "[A] Two"), entry(3, "[A] Three"))
+        val favs = mapOf(1L to 3, 2L to 99)
+        val p = GalleryListProjector.project(
+            list,
+            GalleryListProjector.Options(hideFavorites = false, foldVersions = false, preferredLanguage = null, minFavoriteCount = 50),
+            { FavoriteState.NOT_FAVORITED },
+            favoriteCountOf = { favs[it] },
+        )
+        assertEquals(listOf(2L, 3L), p.rows.map { it.gid })
+        assertFalse(GalleryListProjector.Options(false, false, null, minFavoriteCount = 1).isIdentity)
+        assertFalse(GalleryListProjector.Options(false, false, null, sortByFavorites = true).isIdentity)
     }
 }

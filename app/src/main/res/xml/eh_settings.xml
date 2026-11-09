@@ -253,4 +253,21 @@
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
 
+    <rikka.preference.SimpleMenuPreference
+        android:defaultValue="0"
+        android:key="min_favorite_count"
+        android:title="@string/settings_eh_min_favorite_count"
+        app:entries="@array/min_favorite_count_entries"
+        app:entryValues="@array/min_favorite_count_entry_values"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="sort_by_favorites"
+        android:summary="@string/settings_eh_sort_by_favorites_summary"
+        android:title="@string/settings_eh_sort_by_favorites"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
 </PreferenceScreen>

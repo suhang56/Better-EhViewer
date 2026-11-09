@@ -28,7 +28,7 @@ import com.hippo.ehviewer.client.EhEngine
 import com.hippo.ehviewer.client.data.FavListUrlBuilder
 import com.hippo.ehviewer.client.data.GalleryInfo
 import com.hippo.ehviewer.dao.CloudFavoriteInfo
-import com.hippo.ehviewer.dao.RatingCountInfo
+import com.hippo.ehviewer.dao.GalleryStatsInfo
 import com.hippo.ehviewer.dao.buildCloudFavoritesDB
 import com.hippo.ehviewer.dao.buildGalleryStatsDB
 import com.hippo.util.launchIO
@@ -223,19 +223,24 @@ object GalleryListFeatures {
         foldVersions = Settings.foldGalleryVersions,
         preferredLanguage = Settings.foldPreferredLanguage,
         minRatingCount = Settings.minRatingCount,
+        minFavoriteCount = Settings.minFavoriteCount,
+        sortByFavorites = Settings.sortByFavorites,
     )
 
-    // ---------------------------------------------------------------- rating counts
+    /** What the enabled count filters / sorting need from detail pages. */
+    private fun statsNeed() = GalleryStatsCache.Need(Settings.minRatingCount, Settings.minFavoriteCount, Settings.sortByFavorites)
+
+    // ---------------------------------------------------------------- rating / favourite counts
 
     private val statsDb by lazy { buildGalleryStatsDB(EhApplication.application) }
 
-    /** Permanent cache of rating counts (only the detail page has them). */
-    val ratingCounts = RatingCountCache(
-        object : RatingCountCache.Persistence {
-            override fun loadAll(): Map<Long, RatingCountCache.Entry> = statsDb.ratingCountsDao().list()
-                .associate { it.gid to RatingCountCache.Entry(it.gid, it.count, it.fetchedAt) }
-            override fun upsert(entries: Collection<RatingCountCache.Entry>) = statsDb.ratingCountsDao()
-                .upsert(entries.map { RatingCountInfo(it.gid, it.count, it.fetchedAt) })
+    /** Permanent cache of rating / favourite counts (only the detail page has them). */
+    val galleryStats = GalleryStatsCache(
+        object : GalleryStatsCache.Persistence {
+            override fun loadAll(): Map<Long, GalleryStatsCache.Entry> = statsDb.galleryStatsDao().list()
+                .associate { it.gid to GalleryStatsCache.Entry(it.gid, it.ratingCount, it.favoriteCount, it.fetchedAt) }
+            override fun upsert(entries: Collection<GalleryStatsCache.Entry>) = statsDb.galleryStatsDao()
+                .upsert(entries.map { GalleryStatsInfo(it.gid, it.ratingCount, it.favoriteCount, it.fetchedAt) })
         },
     )
 
@@ -249,7 +254,7 @@ object GalleryListFeatures {
     )
 
     @Volatile
-    private var ratingCountsLoading = false
+    private var galleryStatsLoading = false
 
     /** Call with [lookupThrottle] locked: keeps the hourly cap and a ban pause across restarts. */
     private fun saveThrottle() {
@@ -258,20 +263,20 @@ object GalleryListFeatures {
         Settings.ratingLookupBlockedUntil = state.blockedUntil
     }
 
-    /** Loads the rating count cache off the main thread, then refreshes the lists. */
-    fun ensureRatingCountsLoaded() {
-        if (ratingCounts.isLoaded || ratingCountsLoading) return
-        ratingCountsLoading = true
+    /** Loads the count cache off the main thread, then refreshes the lists. */
+    fun ensureGalleryStatsLoaded() {
+        if (galleryStats.isLoaded || galleryStatsLoading) return
+        galleryStatsLoading = true
         launchIO {
-            runCatching { ratingCounts.ensureLoaded() }.onFailure { Log.e(TAG, "load rating counts", it) }
-            ratingCountsLoading = false
+            runCatching { galleryStats.ensureLoaded() }.onFailure { Log.e(TAG, "load gallery stats", it) }
+            galleryStatsLoading = false
             notifyChanged()
         }
     }
     private val lookupLock = Any()
 
     /** Galleries the visible list wants a rating count for, nearest to the screen first. */
-    private var wantedRatingCounts: List<Pair<Long, String?>> = emptyList()
+    private var wantedStats: List<Pair<Long, String?>> = emptyList()
 
     /** Galleries whose lookup failed recently (gid -> time), skipped for [LOOKUP_RETRY_MS]. */
     private val failedLookups = HashMap<Long, Long>()
@@ -282,10 +287,11 @@ object GalleryListFeatures {
     private const val LOOKUP_RETRY_MS = 10L * 60 * 1000
     private const val MAX_SINGLE_WAIT_MS = 60_000L
 
-    /** A rating count seen for free (detail page opened, gallery rated). */
-    fun onRatingCountKnown(gid: Long, count: Int) {
-        runCatching { ratingCounts.record(gid, count) }.onFailure { Log.e(TAG, "record rating count", it) }
-        if (Settings.minRatingCount > 0) notifyChanged()
+    /** Counts seen for free (detail page opened, gallery rated); null = not known. */
+    fun onGalleryStatsKnown(gid: Long, ratingCount: Int?, favoriteCount: Int?) {
+        if (ratingCount == null && favoriteCount == null) return
+        runCatching { galleryStats.record(gid, ratingCount, favoriteCount) }.onFailure { Log.e(TAG, "record gallery stats", it) }
+        if (statsNeed().any) notifyChanged()
     }
 
     /**
@@ -293,38 +299,38 @@ object GalleryListFeatures {
      * (on screen first). Only galleries actually shown are ever looked up, one at a time
      * and throttled by [LookupThrottle].
      */
-    fun requestRatingCounts(items: List<Pair<Long, String?>>) {
+    fun requestGalleryStats(items: List<Pair<Long, String?>>) {
         // Filtering by cache happens in the worker (IO thread): no database access on the main thread.
-        val needed = if (Settings.minRatingCount > 0) items else emptyList()
+        val needed = if (statsNeed().any) items else emptyList()
         synchronized(lookupLock) {
-            wantedRatingCounts = needed
+            wantedStats = needed
             // Start/exit decisions are made under the same lock, so new work is never stranded
             // between a worker deciding to stop and this check.
             if (needed.isNotEmpty() && lookupJob?.isActive != true) {
-                lookupJob = launchIO { runRatingCountLookups() }
+                lookupJob = launchIO { runGalleryStatsLookups() }
             }
         }
     }
 
     /** The list is no longer visible: stop looking up. */
-    fun clearRatingCountRequests() {
-        synchronized(lookupLock) { wantedRatingCounts = emptyList() }
+    fun clearGalleryStatsRequests() {
+        synchronized(lookupLock) { wantedStats = emptyList() }
     }
 
     /** Next gallery to look up; null means the worker stops (and is then marked as gone, under the lock). */
     private fun nextLookup(now: Long): Pair<Long, String?>? = synchronized(lookupLock) {
-        val min = Settings.minRatingCount
+        val need = statsNeed()
         failedLookups.entries.removeAll { now - it.value !in 0..LOOKUP_RETRY_MS }
-        val next = if (min <= 0) {
+        val next = if (!need.any) {
             null
         } else {
-            wantedRatingCounts.firstOrNull { (gid, _) -> gid !in failedLookups && ratingCounts.needsLookup(gid, min) }
+            wantedStats.firstOrNull { (gid, _) -> gid !in failedLookups && galleryStats.needsLookup(gid, need) }
         }
         if (next == null) lookupJob = null
         next
     }
 
-    private suspend fun runRatingCountLookups() {
+    private suspend fun runGalleryStatsLookups() {
         while (true) {
             val (gid, token) = nextLookup(System.currentTimeMillis()) ?: return
             val wait = synchronized(lookupThrottle) { lookupThrottle.delayBeforeNext() }
@@ -338,10 +344,10 @@ object GalleryListFeatures {
                 saveThrottle()
             }
             try {
-                val count = EhEngine.getRatingCount(gid, token)
-                if (count != null) {
+                val stats = EhEngine.getGalleryStats(gid, token)
+                if (stats != null) {
                     synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
-                    ratingCounts.record(gid, count)
+                    galleryStats.record(gid, stats.ratingCount, stats.favoriteCount)
                     notifyChanged()
                 } else {
                     // Not a gallery page (removed gallery, unexpected page): slow down, skip this one.
@@ -350,7 +356,7 @@ object GalleryListFeatures {
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: RatingCountParser.BannedException) {
+            } catch (e: GalleryStatsParser.BannedException) {
                 Log.w(TAG, "E-Hentai asks to stop (ban / too fast), pausing rating count lookups for ${e.pauseMs / 60000} min", e)
                 synchronized(lookupThrottle) {
                     lookupThrottle.onBanned(e.pauseMs)
