@@ -27,41 +27,47 @@ jobs:
       - name: Spotless Check
         run: ./gradlew spotlessCheck
 
+      - name: Unit Tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-reports-${{ github.sha }}
+          path: app/build/reports/tests/
+
+      # "better" = optimized build with applicationId org.moedog.ehviewer.better.
+      # It installs next to the original EhViewer instead of replacing it.
       - name: Gradle Build
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleBetter
 
       - name: Upload Universal
         uses: actions/upload-artifact@v7
         with:
-          name: universal-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-universal-release.apk
+          name: better-universal-${{ github.sha }}
+          path: app/build/outputs/apk/better/app-universal-better.apk
 
       - name: Upload ARM64
         uses: actions/upload-artifact@v7
         with:
-          name: arm64-v8a-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          name: better-arm64-v8a-${{ github.sha }}
+          path: app/build/outputs/apk/better/app-arm64-v8a-better.apk
 
       - name: Upload ARM32
         uses: actions/upload-artifact@v7
         with:
-          name: armeabi-v7a-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-armeabi-v7a-release.apk
+          name: better-armeabi-v7a-${{ github.sha }}
+          path: app/build/outputs/apk/better/app-armeabi-v7a-better.apk
 
       - name: Upload x86_64
         uses: actions/upload-artifact@v7
         with:
-          name: x86_64-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-x86_64-release.apk
+          name: better-x86_64-${{ github.sha }}
+          path: app/build/outputs/apk/better/app-x86_64-better.apk
 
       - name: Upload mapping
         uses: actions/upload-artifact@v7
         with:
-          name: mapping-${{ github.sha }}
-          path: app/build/outputs/mapping/release/mapping.txt
-
-      - name: Upload native debug symbols
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-debug-symbols-${{ github.sha }}
-          path: app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
+          name: better-mapping-${{ github.sha }}
+          path: app/build/outputs/mapping/better/mapping.txt

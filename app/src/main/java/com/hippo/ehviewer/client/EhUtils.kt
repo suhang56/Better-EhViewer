@@ -19,6 +19,7 @@ import android.text.TextUtils
 import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.client.EhUrl.host
 import com.hippo.ehviewer.client.data.GalleryInfo
+import com.hippo.ehviewer.gallerylist.GalleryListFeatures
 import java.util.regex.Pattern
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
@@ -121,6 +122,7 @@ object EhUtils {
         Settings.putGallerySite(EhUrl.SITE_E)
         Settings.putNeedSignIn(true)
         Settings.putSelectSite(true)
+        GalleryListFeatures.onSignedOut()
     }
 
     fun needSignedIn(): Boolean = Settings.needSignIn

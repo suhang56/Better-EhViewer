@@ -288,4 +288,44 @@
         <item>1</item>
         <item>2</item>
     </string-array>
+    <string-array name="fold_preferred_language_entries" translatable="false">
+        <item>@string/fold_language_auto</item>
+        <item>@string/fold_language_none</item>
+        <item>@string/fold_language_original</item>
+        <item>中文 (Chinese)</item>
+        <item>English</item>
+        <item>한국어 (Korean)</item>
+        <item>Español (Spanish)</item>
+        <item>Русский (Russian)</item>
+        <item>Français (French)</item>
+        <item>Português (Portuguese)</item>
+        <item>ไทย (Thai)</item>
+        <item>Deutsch (German)</item>
+        <item>Italiano (Italian)</item>
+        <item>Tiếng Việt (Vietnamese)</item>
+        <item>Polski (Polish)</item>
+        <item>Magyar (Hungarian)</item>
+        <item>Nederlands (Dutch)</item>
+    </string-array>
+
+    <string-array name="fold_preferred_language_entry_values" translatable="false">
+        <item>auto</item>
+        <item>none</item>
+        <item>JA</item>
+        <item>ZH</item>
+        <item>EN</item>
+        <item>KO</item>
+        <item>ES</item>
+        <item>RU</item>
+        <item>FR</item>
+        <item>PT</item>
+        <item>TH</item>
+        <item>DE</item>
+        <item>IT</item>
+        <item>VI</item>
+        <item>PL</item>
+        <item>HU</item>
+        <item>NL</item>
+    </string-array>
+
 </resources>

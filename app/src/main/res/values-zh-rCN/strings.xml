@@ -636,4 +636,28 @@
     <plurals name="year">
         <item quantity="other">年</item>
     </plurals>
+    <!-- Gallery list: hide favorites / fold versions -->
+    <string name="settings_eh_hide_favorited">隐藏已收藏的画廊</string>
+    <string name="settings_eh_hide_favorited_summary">在搜索结果和画廊列表中隐藏本地收藏及云端收藏中的画廊（按画廊 ID 匹配）。云端收藏状态未知的画廊会保留显示。</string>
+    <string name="settings_eh_cloud_favorites_sync">同步云端收藏</string>
+    <string name="settings_eh_cloud_favorites_sync_never">从未同步。点按立即同步（列表页无法提供收藏状态时使用）</string>
+    <string name="settings_eh_cloud_favorites_sync_status">上次完整同步：%1$s，已缓存 %2$d 个画廊。点按立即同步</string>
+    <string name="settings_eh_cloud_favorites_sync_failed">上次同步失败：%1$s。已缓存 %2$d 个画廊。点按重试</string>
+    <string name="settings_eh_cloud_favorites_syncing">正在同步云端收藏…</string>
+    <string name="settings_eh_cloud_favorites_sync_done">云端收藏已同步</string>
+    <string name="settings_eh_cloud_favorites_sync_partial">云端收藏已部分同步</string>
+    <string name="settings_eh_cloud_favorites_sync_error">云端收藏同步失败</string>
+    <string name="settings_eh_fold_versions">折叠画廊的不同版本</string>
+    <string name="settings_eh_fold_versions_summary">在搜索结果和画廊列表中，将同一作品的不同上传版本、语言版本与翻译版本折叠为一条</string>
+    <string name="settings_eh_fold_preferred_language">折叠后优先显示的语言</string>
+    <string name="fold_language_auto">跟随应用语言</string>
+    <string name="fold_language_none">无偏好（质量优先）</string>
+    <string name="fold_language_original">日语 / 原版</string>
+    <string name="gallery_list_expand_versions">展开其他 %d 个版本</string>
+    <string name="gallery_list_collapse_versions">收起其他 %d 个版本</string>
+    <string name="gallery_list_other_version">上方作品的其他版本</string>
+    <string name="gallery_list_favorite_unknown">收藏状态未知</string>
+    <string name="gallery_list_favorite_state_unknown">%d 个画廊的云端收藏状态未知，已保留显示。可在设置中同步云端收藏。</string>
+    <string name="gallery_list_all_hidden">已加载的 %d 个结果均已隐藏或折叠</string>
+    <string name="gallery_list_all_hidden_load_more">已加载的 %d 个结果均已隐藏或折叠，点按加载更多</string>
 </resources>

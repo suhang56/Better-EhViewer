@@ -17,6 +17,7 @@ package com.hippo.ehviewer.client.parser
 
 import com.hippo.ehviewer.client.EhUtils.getCategory
 import com.hippo.ehviewer.client.data.GalleryInfo
+import com.hippo.ehviewer.gallerylist.GalleryListFeatures
 import com.hippo.yorozuya.NumberUtils
 import org.json.JSONObject
 
@@ -40,6 +41,9 @@ object GalleryApiParser {
             val tagJa = g.getJSONArray("tags")
             gi.simpleTags = (0 until tagJa.length()).map { tagJa.getString(it) }.toTypedArray()
             gi.pages = NumberUtils.parseIntSafely(g.getString("filecount"), 0)
+            // Upload version chain, used to fold different versions of a gallery.
+            g.optString("parent_gid").toLongOrNull()?.let { GalleryListFeatures.versionChains.link(it, gid) }
+            g.optString("first_gid").toLongOrNull()?.let { GalleryListFeatures.versionChains.link(it, gid) }
             gi.generateSLang()
         }
     }

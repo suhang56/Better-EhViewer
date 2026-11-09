@@ -4,7 +4,7 @@ import java.time.format.DateTimeFormatter
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val isRelease: Boolean
-    get() = gradle.startParameter.taskNames.any { it.contains("Release") }
+    get() = gradle.startParameter.taskNames.any { it.contains("Release") || it.contains("Better") }
 val supportedAbis = arrayOf("arm64-v8a", "x86_64", "armeabi-v7a")
 
 plugins {
@@ -117,6 +117,14 @@ android {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "BUILD_TIME", "\"\"")
         }
+        // Optimized test build of Better-EhViewer. A separate applicationId lets it be
+        // installed next to the original EhViewer without replacing it or its data.
+        create("better") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".better"
+            versionNameSuffix = "-better"
+            matchingFallbacks += "release"
+        }
     }
 
     buildFeatures {
@@ -176,6 +184,8 @@ dependencies {
     implementation(libs.jsoup)
 
     coreLibraryDesugaring(libs.desugar)
+
+    testImplementation(libs.junit)
 }
 
 kotlin {

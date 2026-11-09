@@ -88,7 +88,7 @@ object GalleryListParser {
         return -2
     }
 
-    private fun parseGalleryInfo(e: Element): GalleryInfo? {
+    private fun parseGalleryInfo(e: Element, favoriteMarkers: MutableMap<Long, Int>? = null): GalleryInfo? {
         val gi: GalleryInfo = BaseGalleryInfo()
 
         // Title, gid, token (required)
@@ -203,6 +203,8 @@ object GalleryListParser {
         if (posted != null) {
             gi.posted = posted.text().trim { it <= ' ' }
             gi.favoriteSlot = parseFavoriteSlot(posted.attr("style"))
+            // Raw cloud marker: -2 no marker, -1 favourited with an unknown colour, 0..9 slot
+            if (gi.gid > 0) favoriteMarkers?.put(gi.gid, gi.favoriteSlot)
         }
         if (gi.favoriteSlot < 0) {
             gi.favoriteSlot = if (EhDB.containLocalFavorites(gi.gid)) -1 else -2
@@ -319,7 +321,7 @@ object GalleryListParser {
             val list = result.galleryInfoList
             // First one is table header, skip it
             for (i in es.indices) {
-                val gi = parseGalleryInfo(es[i])
+                val gi = parseGalleryInfo(es[i], result.favoriteMarkers)
                 if (null != gi) {
                     list.add(gi)
                 }
@@ -344,5 +346,8 @@ object GalleryListParser {
         var next: String? = null
         var noWatchedTags = false
         val galleryInfoList = mutableListOf<GalleryInfo>()
+
+        /** Cloud favourite marker drawn by the site for each gallery whose `posted_` element was found. */
+        val favoriteMarkers = HashMap<Long, Int>()
     }
 }

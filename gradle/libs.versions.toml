@@ -57,6 +57,7 @@ coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp" }
 
 drawer = { module = "com.drakeet.drawer:drawer", version.ref = "drawer" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+junit = "junit:junit:4.13.2"
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 kotlinx-serialization-cbor = { module = "org.jetbrains.kotlinx:kotlinx-serialization-cbor", version.ref = "kotlinx-serialization" }

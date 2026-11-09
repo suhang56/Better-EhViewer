@@ -18,7 +18,9 @@ package com.hippo.ehviewer.ui.fragment
 import android.app.Activity
 import android.content.res.Configuration
 import android.os.Bundle
+import android.text.format.DateUtils
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.lifecycleScope
@@ -29,13 +31,20 @@ import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.client.EhCookieStore
 import com.hippo.ehviewer.client.EhEngine
 import com.hippo.ehviewer.client.EhTagDatabase
+import com.hippo.ehviewer.gallerylist.CloudFavoriteSyncer
+import com.hippo.ehviewer.gallerylist.GalleryListFeatures
 import com.hippo.util.launchNonCancellable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class EhFragment : BasePreferenceFragment() {
     private lateinit var detailSize: Preference
     private lateinit var listThumbSize: Preference
     private lateinit var thumbSize: Preference
     private lateinit var thumbShowTitle: Preference
+    private var cloudFavoritesSync: Preference? = null
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         addPreferencesFromResource(R.xml.eh_settings)
@@ -60,6 +69,17 @@ class EhFragment : BasePreferenceFragment() {
         listThumbSize.onPreferenceChangeListener = this
         thumbSize.onPreferenceChangeListener = this
         thumbShowTitle.onPreferenceChangeListener = this
+        findPreference<Preference>(Settings.KEY_HIDE_FAVORITED_GALLERIES)!!.onPreferenceChangeListener = this
+        cloudFavoritesSync = findPreference(Settings.KEY_CLOUD_FAVORITES_SYNC)
+        cloudFavoritesSync?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+            syncCloudFavorites()
+            true
+        }
+        if (!EhCookieStore.hasSignedIn()) {
+            cloudFavoritesSync?.let { preferenceScreen.removePreference(it) }
+            cloudFavoritesSync = null
+        }
+        updateCloudFavoritesSummary()
         Settings.displayName?.let { account?.summary = it }
         if (!EhTagDatabase.isTranslatable(requireActivity())) {
             if (!Settings.showTagTranslations) {
@@ -105,6 +125,11 @@ class EhFragment : BasePreferenceFragment() {
             requireActivity().setResult(Activity.RESULT_OK)
         } else if (Settings.KEY_THUMB_SHOW_TITLE == key) {
             requireActivity().setResult(Activity.RESULT_OK)
+        } else if (Settings.KEY_HIDE_FAVORITED_GALLERIES == key) {
+            if (java.lang.Boolean.TRUE == newValue) {
+                // Settings are written after this callback returns.
+                view?.post { GalleryListFeatures.maybeAutoSync() }
+            }
         } else if (Settings.KEY_SHOW_TAG_TRANSLATIONS == key) {
             if (java.lang.Boolean.TRUE == newValue) {
                 lifecycleScope.launchNonCancellable { EhTagDatabase.update(true) }
@@ -116,6 +141,45 @@ class EhFragment : BasePreferenceFragment() {
     @get:StringRes
     override val fragmentTitle: Int
         get() = R.string.settings_eh
+
+    private fun updateCloudFavoritesSummary() {
+        val pref = cloudFavoritesSync ?: return
+        if (GalleryListFeatures.isSyncing) {
+            pref.summary = getString(R.string.settings_eh_cloud_favorites_syncing)
+            return
+        }
+        val cache = GalleryListFeatures.cloudCache
+        val state = runCatching { cache.ensureLoaded() }.map { cache.syncState }.getOrNull() ?: return
+        val count = cache.size
+        pref.summary = when {
+            state.lastError != null -> getString(R.string.settings_eh_cloud_favorites_sync_failed, state.lastError, count)
+            state.lastFullSyncAt > 0 -> getString(
+                R.string.settings_eh_cloud_favorites_sync_status,
+                DateUtils.getRelativeTimeSpanString(state.lastFullSyncAt),
+                count,
+            )
+            else -> getString(R.string.settings_eh_cloud_favorites_sync_never)
+        }
+    }
+
+    private fun syncCloudFavorites() {
+        if (GalleryListFeatures.isSyncing) return
+        cloudFavoritesSync?.summary = getString(R.string.settings_eh_cloud_favorites_syncing)
+        val appContext = requireContext().applicationContext
+        lifecycleScope.launch {
+            // Not cancelled with the screen: a sync is cheap to finish and expensive to restart.
+            val result = withContext(Dispatchers.IO + NonCancellable) {
+                runCatching { GalleryListFeatures.sync() }.getOrNull()
+            }
+            val message = when (result) {
+                is CloudFavoriteSyncer.Result.Complete -> R.string.settings_eh_cloud_favorites_sync_done
+                is CloudFavoriteSyncer.Result.Partial -> R.string.settings_eh_cloud_favorites_sync_partial
+                else -> R.string.settings_eh_cloud_favorites_sync_error
+            }
+            Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+            if (isAdded) updateCloudFavoritesSummary()
+        }
+    }
 
     private fun updateListPreference(newValue: Int) {
         val isDetailMode = newValue == 0

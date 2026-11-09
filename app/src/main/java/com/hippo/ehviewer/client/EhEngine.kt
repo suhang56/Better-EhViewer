@@ -37,6 +37,7 @@ import com.hippo.ehviewer.client.parser.FavoritesParser
 import com.hippo.ehviewer.client.parser.ForumsParser
 import com.hippo.ehviewer.client.parser.GalleryApiParser
 import com.hippo.ehviewer.client.parser.GalleryDetailParser
+import com.hippo.ehviewer.client.parser.GalleryDetailUrlParser
 import com.hippo.ehviewer.client.parser.GalleryListParser
 import com.hippo.ehviewer.client.parser.GalleryMultiPageViewerParser
 import com.hippo.ehviewer.client.parser.GalleryNotAvailableParser
@@ -51,6 +52,7 @@ import com.hippo.ehviewer.client.parser.TorrentParser
 import com.hippo.ehviewer.client.parser.UserConfigParser
 import com.hippo.ehviewer.client.parser.VoteCommentParser
 import com.hippo.ehviewer.client.parser.VoteTagParser
+import com.hippo.ehviewer.gallerylist.GalleryListFeatures
 import com.hippo.network.StatusCodeException
 import java.io.File
 import kotlin.math.ceil
@@ -203,7 +205,10 @@ object EhEngine {
         val referer = EhUrl.referer
         Log.d(TAG, url)
         return EhRequestBuilder(url, referer).executeAndParsingWith(GalleryListParser::parse)
-            .apply { fillGalleryList(galleryInfoList, url, true) }
+            .apply {
+                GalleryListFeatures.onGalleryListPage(favoriteMarkers, url.contains(EhUrl.DOMAIN_EX))
+                fillGalleryList(galleryInfoList, url, true)
+            }
     }
 
     suspend fun fillGalleryListByApi(
@@ -261,6 +266,10 @@ object EhEngine {
                 application.showEventPane(it)
             }
             GalleryDetailParser.parse(this)
+        }.also { gd ->
+            // Remember upload version chains for folding.
+            gd.parent?.let { GalleryDetailUrlParser.parse(it, false) }?.let { GalleryListFeatures.versionChains.link(it.gid, gd.gid) }
+            gd.newerVersions.forEach { GalleryListFeatures.versionChains.link(gd.gid, it.gid) }
         }
     }
 
@@ -352,7 +361,16 @@ object EhEngine {
         val referer = EhUrl.referer
         Log.d(TAG, url)
         return EhRequestBuilder(url, referer).executeAndParsingWith(FavoritesParser::parse)
-            .apply { fillGalleryList(galleryInfoList, url, false) }
+            .apply {
+                GalleryListFeatures.onFavoritesPage(galleryInfoList)
+                fillGalleryList(galleryInfoList, url, false)
+            }
+    }
+
+    /** Favourites page for the cloud favourites cache sync: no extra API requests. */
+    suspend fun getFavoritesForSync(url: String): FavoritesParser.Result {
+        Log.d(TAG, url)
+        return EhRequestBuilder(url, EhUrl.referer).executeAndParsingWith(FavoritesParser::parse)
     }
 
     /**
@@ -388,6 +406,13 @@ object EhEngine {
         return EhRequestBuilder(url, url, origin)
             .post(builder.build())
             .executeAndParsingWith { }
+            .also {
+                if (dstCat == -1) {
+                    GalleryListFeatures.onCloudFavoritesRemoved(listOf(gid))
+                } else {
+                    GalleryListFeatures.onCloudFavoriteAdded(gid, dstCat)
+                }
+            }
     }
 
     @Throws(Throwable::class)
@@ -433,7 +458,15 @@ object EhEngine {
         return EhRequestBuilder(url, url, origin)
             .post(builder.build())
             .executeAndParsingWith(FavoritesParser::parse)
-            .apply { fillGalleryList(galleryInfoList, url, false) }
+            .apply {
+                if (dstCat == -1) {
+                    GalleryListFeatures.onCloudFavoritesRemoved(gidArray.toList())
+                } else {
+                    gidArray.forEach { GalleryListFeatures.onCloudFavoriteAdded(it, dstCat) }
+                }
+                GalleryListFeatures.onFavoritesPage(galleryInfoList)
+                fillGalleryList(galleryInfoList, url, false)
+            }
     }
 
     suspend fun getTorrentList(

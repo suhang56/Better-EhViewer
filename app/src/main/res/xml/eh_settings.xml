@@ -209,4 +209,36 @@
         android:title="@string/settings_eh_hide_hv_events"
         app:iconSpaceReserved="false" />
 
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="hide_favorited_galleries"
+        android:summary="@string/settings_eh_hide_favorited_summary"
+        android:title="@string/settings_eh_hide_favorited"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:dependency="hide_favorited_galleries"
+        android:key="cloud_favorites_sync"
+        android:title="@string/settings_eh_cloud_favorites_sync"
+        app:iconSpaceReserved="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="fold_gallery_versions"
+        android:summary="@string/settings_eh_fold_versions_summary"
+        android:title="@string/settings_eh_fold_versions"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <rikka.preference.SimpleMenuPreference
+        android:defaultValue="auto"
+        android:dependency="fold_gallery_versions"
+        android:key="fold_preferred_language"
+        android:title="@string/settings_eh_fold_preferred_language"
+        app:entries="@array/fold_preferred_language_entries"
+        app:entryValues="@array/fold_preferred_language_entry_values"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
 </PreferenceScreen>

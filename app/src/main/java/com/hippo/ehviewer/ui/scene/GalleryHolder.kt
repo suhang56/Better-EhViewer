@@ -37,4 +37,5 @@ internal class GalleryHolder(itemView: View) : RecyclerView.ViewHolder(itemView)
     val favourited: ImageView? = itemView.findViewById(R.id.favourited)
     val downloaded: ImageView? = itemView.findViewById(R.id.downloaded)
     val card: MaterialCardView = itemView.findViewById(R.id.card)
+    val versions: TextView? = itemView.findViewById(R.id.versions)
 }

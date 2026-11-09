@@ -78,6 +78,17 @@ object Settings {
     private const val DEFAULT_REQUEST_NEWS = false
     private const val KEY_HIDE_HV_EVENTS = "hide_hv_events"
     private const val DEFAULT_HIDE_HV_EVENTS = false
+    const val KEY_HIDE_FAVORITED_GALLERIES = "hide_favorited_galleries"
+    private const val DEFAULT_HIDE_FAVORITED_GALLERIES = false
+    const val KEY_FOLD_GALLERY_VERSIONS = "fold_gallery_versions"
+    private const val DEFAULT_FOLD_GALLERY_VERSIONS = false
+    const val KEY_FOLD_PREFERRED_LANGUAGE = "fold_preferred_language"
+    const val FOLD_PREFERRED_LANGUAGE_AUTO = "auto"
+    const val FOLD_PREFERRED_LANGUAGE_NONE = "none"
+    const val KEY_CLOUD_FAVORITES_SYNC = "cloud_favorites_sync"
+    private const val KEY_CLOUD_FAV_LAST_FULL_SYNC = "cloud_fav_last_full_sync"
+    private const val KEY_CLOUD_FAV_LAST_ATTEMPT = "cloud_fav_last_attempt"
+    private const val KEY_CLOUD_FAV_LAST_ERROR = "cloud_fav_last_error"
     val SIGN_IN_REQUIRED = arrayOf(
         KEY_GALLERY_SITE,
         KEY_IMAGE_LIMITS,
@@ -446,6 +457,49 @@ object Settings {
 
     val hideHvEvents: Boolean
         get() = getBoolean(KEY_HIDE_HV_EVENTS, DEFAULT_HIDE_HV_EVENTS)
+
+    val hideFavoritedGalleries: Boolean
+        get() = getBoolean(KEY_HIDE_FAVORITED_GALLERIES, DEFAULT_HIDE_FAVORITED_GALLERIES)
+
+    val foldGalleryVersions: Boolean
+        get() = getBoolean(KEY_FOLD_GALLERY_VERSIONS, DEFAULT_FOLD_GALLERY_VERSIONS)
+
+    /** Simple language code (EN, ZH, JA...) preferred as representative of folded versions, null for none. */
+    val foldPreferredLanguage: String?
+        get() = when (val value = getString(KEY_FOLD_PREFERRED_LANGUAGE, FOLD_PREFERRED_LANGUAGE_AUTO)) {
+            null, FOLD_PREFERRED_LANGUAGE_AUTO -> when (Locale.getDefault().language) {
+                "zh" -> "ZH"
+                "ja" -> "JA"
+                "ko" -> "KO"
+                "en" -> "EN"
+                "es" -> "ES"
+                "ru" -> "RU"
+                "fr" -> "FR"
+                "pt" -> "PT"
+                "th" -> "TH"
+                "de" -> "DE"
+                "it" -> "IT"
+                "vi" -> "VI"
+                "pl" -> "PL"
+                "hu" -> "HU"
+                "nl" -> "NL"
+                else -> null
+            }
+            FOLD_PREFERRED_LANGUAGE_NONE -> null
+            else -> value
+        }
+
+    var cloudFavLastFullSync: Long
+        get() = getLong(KEY_CLOUD_FAV_LAST_FULL_SYNC, 0)
+        set(value) = putLong(KEY_CLOUD_FAV_LAST_FULL_SYNC, value)
+
+    var cloudFavLastAttempt: Long
+        get() = getLong(KEY_CLOUD_FAV_LAST_ATTEMPT, 0)
+        set(value) = putLong(KEY_CLOUD_FAV_LAST_ATTEMPT, value)
+
+    var cloudFavLastError: String?
+        get() = getString(KEY_CLOUD_FAV_LAST_ERROR, null)
+        set(value) = putString(KEY_CLOUD_FAV_LAST_ERROR, value)
 
     val screenRotation: Int
         get() = getIntFromStr(KEY_SCREEN_ROTATION, DEFAULT_SCREEN_ROTATION)

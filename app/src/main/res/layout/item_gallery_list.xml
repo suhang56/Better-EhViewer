@@ -136,5 +136,17 @@
                 android:layout_height="wrap_content" />
 
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/versions"
+            style="@style/CardMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/thumb"
+            android:background="?selectableItemBackground"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="6dp"
+            android:textColor="?attr/textColorThemeAccent"
+            android:visibility="gone" />
     </RelativeLayout>
 </com.google.android.material.card.MaterialCardView>

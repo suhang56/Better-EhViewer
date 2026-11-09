@@ -188,6 +188,10 @@ object EhDB {
         }
     }
 
+    @get:Synchronized
+    val localFavoriteGids: Set<Long>
+        get() = db.localFavoritesDao().gids().toHashSet()
+
     @Synchronized
     fun containLocalFavorites(gid: Long): Boolean {
         val dao = db.localFavoritesDao()

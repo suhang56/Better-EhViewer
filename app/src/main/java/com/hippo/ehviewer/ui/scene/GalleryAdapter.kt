@@ -173,6 +173,10 @@ internal abstract class GalleryAdapter(
                 holder.bindingAdapterPosition,
             )
         }
+        holder.versions?.setOnClickListener {
+            val position = holder.bindingAdapterPosition
+            if (position != RecyclerView.NO_POSITION) onToggleVersions(position)
+        }
         return holder
     }
 
@@ -181,6 +185,62 @@ internal abstract class GalleryAdapter(
     override fun getItemViewType(position: Int): Int = mType
 
     abstract fun getDataAt(position: Int): GalleryInfo?
+
+    /**
+     * Folding / hiding state of a row. Null (the default) for lists that show
+     * the raw data, such as favourites, history and downloads.
+     */
+    open fun getRowState(position: Int): RowState? = null
+
+    /** The "other versions" entry of the row at [position] was clicked. */
+    open fun onToggleVersions(position: Int) {}
+
+    /**
+     * @param otherVersions number of other versions folded with this gallery
+     * @param expanded the other versions are currently displayed
+     * @param isOtherVersion this row is one of the other versions of an expanded group
+     * @param favoriteUnknown the cloud favourite state of this gallery is unknown
+     */
+    data class RowState(
+        val otherVersions: Int,
+        val expanded: Boolean,
+        val isOtherVersion: Boolean,
+        val favoriteUnknown: Boolean,
+    )
+
+    private fun bindRowState(holder: GalleryHolder, state: RowState?) {
+        val versions = holder.versions ?: return
+        when {
+            state == null -> versions.visibility = View.GONE
+            state.isOtherVersion -> {
+                versions.visibility = View.VISIBLE
+                versions.isClickable = false
+                versions.text = mResources.getString(R.string.gallery_list_other_version)
+                versions.alpha = .6f
+            }
+            state.otherVersions > 0 -> {
+                versions.visibility = View.VISIBLE
+                versions.isClickable = true
+                versions.alpha = 1f
+                versions.text = mResources.getString(
+                    if (state.expanded) R.string.gallery_list_collapse_versions else R.string.gallery_list_expand_versions,
+                    state.otherVersions,
+                )
+            }
+            else -> versions.visibility = View.GONE
+        }
+        holder.favourited?.let { heart ->
+            if (state?.favoriteUnknown == true && heart.visibility != View.VISIBLE) {
+                // Cloud state unknown (not synced): show a faded heart instead of claiming "not favourited".
+                heart.visibility = View.VISIBLE
+                heart.alpha = .3f
+                heart.contentDescription = mResources.getString(R.string.gallery_list_favorite_unknown)
+            } else if (heart.visibility == View.VISIBLE) {
+                heart.alpha = 1f
+                heart.contentDescription = null
+            }
+        }
+    }
 
     @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: GalleryHolder, position: Int) {
@@ -259,6 +319,7 @@ internal abstract class GalleryAdapter(
                 holder.simpleLanguage.text = gi.simpleLanguage
             }
         }
+        bindRowState(holder, getRowState(position))
         // Update transition name
         ViewCompat.setTransitionName(
             holder.thumb,

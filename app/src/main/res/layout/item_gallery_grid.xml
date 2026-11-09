@@ -82,4 +82,17 @@
         android:textStyle="bold"
         tools:ignore="SpUsage" />
 
+    <TextView
+        android:id="@+id/versions"
+        style="@style/CardMessage"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|left"
+        android:layout_margin="4dp"
+        android:background="@drawable/versions_badge_background"
+        android:paddingHorizontal="6dp"
+        android:paddingVertical="2dp"
+        android:textColor="@android:color/white"
+        android:visibility="gone" />
+
 </com.google.android.material.card.MaterialCardView>

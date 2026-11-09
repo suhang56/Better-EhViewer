@@ -234,33 +234,9 @@ class ContentLayout @JvmOverloads constructor(
             object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     if (!mRefreshLayout!!.isRefreshing && !recyclerView.canScrollVertically(1)) {
-                        if (mNext != null || mEndPage < pages) {
-                            mBottomProgress!!.show()
-                            // Get next page
-                            // Fill pages before NextPage with empty list
-                            while (mNextPage > mEndPage && mEndPage < pages) {
-                                mCurrentTaskId = mIdGenerator.nextId()
-                                mCurrentTaskType = TYPE_NEXT_PAGE_KEEP_POS
-                                mCurrentTaskPage = mEndPage
-                                onGetPageData(
-                                    mCurrentTaskId,
-                                    pages,
-                                    mNextPage,
-                                    null,
-                                    null,
-                                    emptyList(),
-                                )
-                            }
-                            mCurrentTaskId = mIdGenerator.nextId()
-                            mCurrentTaskType = TYPE_NEXT_PAGE_KEEP_POS
-                            mCurrentTaskPage = mEndPage
-                            getPageData(
-                                mCurrentTaskId,
-                                mCurrentTaskType,
-                                mCurrentTaskPage,
-                                mNext,
-                                true,
-                            )
+                        if (hasNextPage) {
+                            if (!onBottomReached(dy)) return
+                            doRequestNextPage()
                         } else if (mStartPage > 0 && mEndPage == pages) {
                             mBottomProgress!!.show()
                             // Refresh last page
@@ -279,6 +255,72 @@ class ContentLayout @JvmOverloads constructor(
                 }
             }
         private var mSavedDataId = IntIdGenerator.INVALID_ID
+
+        /** True if the site reported another page after the loaded ones. */
+        val hasNextPage: Boolean
+            get() = mNext != null || mEndPage < pages
+
+        private fun doRequestNextPage() {
+            mBottomProgress!!.show()
+            // Get next page
+            // Fill pages before NextPage with empty list
+            while (mNextPage > mEndPage && mEndPage < pages) {
+                mCurrentTaskId = mIdGenerator.nextId()
+                mCurrentTaskType = TYPE_NEXT_PAGE_KEEP_POS
+                mCurrentTaskPage = mEndPage
+                onGetPageData(
+                    mCurrentTaskId,
+                    pages,
+                    mNextPage,
+                    null,
+                    null,
+                    emptyList(),
+                )
+            }
+            mCurrentTaskId = mIdGenerator.nextId()
+            mCurrentTaskType = TYPE_NEXT_PAGE_KEEP_POS
+            mCurrentTaskPage = mEndPage
+            getPageData(
+                mCurrentTaskId,
+                mCurrentTaskType,
+                mCurrentTaskPage,
+                mNext,
+                true,
+            )
+        }
+
+        /**
+         * Requests the next page without any user scroll. Used by lists that hide
+         * part of the data and must top up the visible results (with a cap).
+         *
+         * @return true if a request was sent
+         */
+        fun requestNextPage(): Boolean {
+            if (mRefreshLayout?.isRefreshing != false || !hasNextPage) return false
+            doRequestNextPage()
+            return true
+        }
+
+        /**
+         * Called when the list is scrolled to the bottom and a next page exists.
+         * [dy] is 0 when the callback comes from a layout pass rather than a user scroll.
+         *
+         * @return false to skip loading the next page
+         */
+        protected open fun onBottomReached(dy: Int): Boolean = true
+
+        /** Maps a position in the data to an adapter position. Identity unless the adapter hides data. */
+        protected open fun dataToAdapterPosition(position: Int): Int = position
+
+        /** Maps an adapter position to a position in the data. Identity unless the adapter hides data. */
+        protected open fun adapterToDataPosition(position: Int): Int = position
+
+        private fun scrollToDataPosition(position: Int) {
+            val adapterPosition = dataToAdapterPosition(position)
+            LayoutManagerUtils.scrollToPositionWithOffset(mRecyclerView!!.layoutManager!!, adapterPosition, 0)
+            onScrollToPosition(adapterPosition)
+        }
+
         fun init(contentLayout: ContentLayout) {
             mNextPageScrollSize = LayoutUtils.dp2pix(contentLayout.context, 48f)
             val mProgressView = contentLayout.mProgressView
@@ -294,7 +336,7 @@ class ContentLayout @JvmOverloads constructor(
             mViewTransition!!.setOnShowViewListener(this)
             mRecyclerView!!.addOnScrollListener(mOnScrollListener)
             mRefreshLayout!!.setOnRefreshListener(mOnRefreshListener)
-            mTipView!!.setOnClickListener { refresh() }
+            mTipView!!.setOnClickListener { onTipClick() }
         }
 
         /**
@@ -317,6 +359,11 @@ class ContentLayout @JvmOverloads constructor(
         protected abstract fun notifyDataSetChanged()
         protected abstract fun notifyItemRangeInserted(positionStart: Int, itemCount: Int)
         protected open fun onScrollToPosition(position: Int) {}
+
+        /** The tip view (empty / error text) was clicked. */
+        protected open fun onTipClick() {
+            refresh()
+        }
         override fun onShowView(hiddenView: View, shownView: View) {}
         val shownViewIndex: Int
             get() = mViewTransition!!.shownViewIndex
@@ -343,7 +390,7 @@ class ContentLayout @JvmOverloads constructor(
         }
 
         val firstVisibleItem: E?
-            get() = getDataAtEx(LayoutManagerUtils.getFirstVisibleItemPosition(mRecyclerView!!.layoutManager!!))
+            get() = getDataAtEx(adapterToDataPosition(LayoutManagerUtils.getFirstVisibleItemPosition(mRecyclerView!!.layoutManager!!)))
 
         fun size(): Int = mData.size
 
@@ -407,12 +454,7 @@ class ContentLayout @JvmOverloads constructor(
                             // RecyclerView scroll
                             if (mRecyclerView!!.isAttachedToWindow) {
                                 mRecyclerView!!.stopScroll()
-                                LayoutManagerUtils.scrollToPositionWithOffset(
-                                    mRecyclerView!!.layoutManager!!,
-                                    0,
-                                    0,
-                                )
-                                onScrollToPosition(0)
+                                scrollToDataPosition(0)
                             }
                         }
                     }
@@ -445,12 +487,7 @@ class ContentLayout @JvmOverloads constructor(
                                 if (mCurrentTaskType == TYPE_PRE_PAGE && mRecyclerView!!.isAttachedToWindow) {
                                     // RecyclerView scroll, to top
                                     mRecyclerView!!.stopScroll()
-                                    LayoutManagerUtils.scrollToPositionWithOffset(
-                                        mRecyclerView!!.layoutManager!!,
-                                        0,
-                                        0,
-                                    )
-                                    onScrollToPosition(0)
+                                    scrollToDataPosition(0)
                                 }
                             }
                         } else {
@@ -469,17 +506,12 @@ class ContentLayout @JvmOverloads constructor(
                                     LayoutManagerUtils.scrollToPositionProperly(
                                         mRecyclerView!!.layoutManager!!,
                                         context,
-                                        dataSize - 1,
+                                        dataToAdapterPosition(dataSize - 1),
                                         mOnScrollToPositionListener,
                                     )
                                 } else {
                                     mRecyclerView!!.stopScroll()
-                                    LayoutManagerUtils.scrollToPositionWithOffset(
-                                        mRecyclerView!!.layoutManager!!,
-                                        0,
-                                        0,
-                                    )
-                                    onScrollToPosition(0)
+                                    scrollToDataPosition(0)
                                 }
                             }
                         }
@@ -508,12 +540,7 @@ class ContentLayout @JvmOverloads constructor(
                                 if (mCurrentTaskType == TYPE_NEXT_PAGE && mRecyclerView!!.isAttachedToWindow) {
                                     // RecyclerView scroll
                                     mRecyclerView!!.stopScroll()
-                                    LayoutManagerUtils.scrollToPositionWithOffset(
-                                        mRecyclerView!!.layoutManager!!,
-                                        oldDataSize,
-                                        0,
-                                    )
-                                    onScrollToPosition(oldDataSize)
+                                    scrollToDataPosition(oldDataSize)
                                 }
                             }
                         } else {
@@ -531,12 +558,7 @@ class ContentLayout @JvmOverloads constructor(
                                     mRecyclerView!!.smoothScrollBy(0, mNextPageScrollSize)
                                 } else {
                                     mRecyclerView!!.stopScroll()
-                                    LayoutManagerUtils.scrollToPositionWithOffset(
-                                        mRecyclerView!!.layoutManager!!,
-                                        oldDataSize,
-                                        0,
-                                    )
-                                    onScrollToPosition(oldDataSize)
+                                    scrollToDataPosition(oldDataSize)
                                 }
                             }
                         }
@@ -574,12 +596,7 @@ class ContentLayout @JvmOverloads constructor(
                             if (mRecyclerView!!.isAttachedToWindow) {
                                 // RecyclerView scroll
                                 mRecyclerView!!.stopScroll()
-                                LayoutManagerUtils.scrollToPositionWithOffset(
-                                    mRecyclerView!!.layoutManager!!,
-                                    0,
-                                    0,
-                                )
-                                onScrollToPosition(0)
+                                scrollToDataPosition(0)
                             }
                         }
                     }
@@ -631,12 +648,7 @@ class ContentLayout @JvmOverloads constructor(
                             // RecyclerView scroll
                             if (newIndexEnd > oldIndexEnd && newIndexEnd > 0 && mRecyclerView!!.isAttachedToWindow) {
                                 mRecyclerView!!.stopScroll()
-                                LayoutManagerUtils.scrollToPositionWithOffset(
-                                    mRecyclerView!!.layoutManager!!,
-                                    newIndexEnd - 1,
-                                    0,
-                                )
-                                onScrollToPosition(newIndexEnd - 1)
+                                scrollToDataPosition(newIndexEnd - 1)
                             }
                         }
                     }
@@ -676,6 +688,16 @@ class ContentLayout @JvmOverloads constructor(
 
         fun showProgressBar(animation: Boolean = true) {
             mViewTransition!!.showView(1, animation)
+        }
+
+        /** Shows [text] in place of the list, e.g. when every loaded result is hidden. */
+        protected fun showTipText(text: CharSequence?) {
+            showText(text)
+        }
+
+        /** Shows the list again after [showTipText]. */
+        protected fun showContentView() {
+            showContent()
         }
 
         private fun showText(text: CharSequence?) {
@@ -739,9 +761,9 @@ class ContentLayout @JvmOverloads constructor(
         }
 
         val pageForTop: Int
-            get() = getPageForPosition(LayoutManagerUtils.getFirstVisibleItemPosition(mRecyclerView!!.layoutManager!!))
+            get() = getPageForPosition(adapterToDataPosition(LayoutManagerUtils.getFirstVisibleItemPosition(mRecyclerView!!.layoutManager!!)))
         val pageForBottom: Int
-            get() = getPageForPosition(LayoutManagerUtils.getLastVisibleItemPosition(mRecyclerView!!.layoutManager!!))
+            get() = getPageForPosition(adapterToDataPosition(LayoutManagerUtils.getLastVisibleItemPosition(mRecyclerView!!.layoutManager!!)))
 
         fun canGoTo(): Boolean = isContentShowing
 
@@ -759,12 +781,7 @@ class ContentLayout @JvmOverloads constructor(
                 cancelCurrentTask()
                 val position = getPageStart(page)
                 mRecyclerView!!.stopScroll()
-                LayoutManagerUtils.scrollToPositionWithOffset(
-                    mRecyclerView!!.layoutManager!!,
-                    position,
-                    0,
-                )
-                onScrollToPosition(position)
+                scrollToDataPosition(position)
             } else if (page == mStartPage - 1) {
                 mRefreshLayout!!.isRefreshing = true
                 mBottomProgress!!.hide()

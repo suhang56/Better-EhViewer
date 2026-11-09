@@ -704,4 +704,28 @@
         <item quantity="one">year</item>
         <item quantity="other">years</item>
     </plurals>
+    <!-- Gallery list: hide favorites / fold versions -->
+    <string name="settings_eh_hide_favorited">Hide favorited galleries</string>
+    <string name="settings_eh_hide_favorited_summary">Hide galleries in your local or cloud favorites from search results and gallery lists (matched by gallery ID). Galleries whose cloud state is unknown stay visible.</string>
+    <string name="settings_eh_cloud_favorites_sync">Sync cloud favorites</string>
+    <string name="settings_eh_cloud_favorites_sync_never">Never synced. Tap to sync now (used when the list page does not show favorite status)</string>
+    <string name="settings_eh_cloud_favorites_sync_status">Last complete sync: %1$s, %2$d galleries cached. Tap to sync now</string>
+    <string name="settings_eh_cloud_favorites_sync_failed">Last sync failed: %1$s. %2$d galleries cached. Tap to retry</string>
+    <string name="settings_eh_cloud_favorites_syncing">Syncing cloud favorites…</string>
+    <string name="settings_eh_cloud_favorites_sync_done">Cloud favorites synced</string>
+    <string name="settings_eh_cloud_favorites_sync_partial">Cloud favorites partially synced</string>
+    <string name="settings_eh_cloud_favorites_sync_error">Cloud favorites sync failed</string>
+    <string name="settings_eh_fold_versions">Fold gallery versions</string>
+    <string name="settings_eh_fold_versions_summary">Show different uploads, languages and translations of the same work as one entry in search results and gallery lists</string>
+    <string name="settings_eh_fold_preferred_language">Preferred language of folded entry</string>
+    <string name="fold_language_auto">Follow app language</string>
+    <string name="fold_language_none">No preference (best quality)</string>
+    <string name="fold_language_original">Japanese / original</string>
+    <string name="gallery_list_expand_versions">Show %d other versions</string>
+    <string name="gallery_list_collapse_versions">Hide %d other versions</string>
+    <string name="gallery_list_other_version">Other version of the work above</string>
+    <string name="gallery_list_favorite_unknown">Favorite state unknown</string>
+    <string name="gallery_list_favorite_state_unknown">Cloud favorite state of %d galleries is unknown, they are kept visible. Sync cloud favorites in settings.</string>
+    <string name="gallery_list_all_hidden">All %d loaded results are hidden or folded</string>
+    <string name="gallery_list_all_hidden_load_more">All %d loaded results are hidden or folded. Tap to load more</string>
 </resources>

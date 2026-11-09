@@ -37,6 +37,7 @@ import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
@@ -89,6 +90,8 @@ import com.hippo.ehviewer.dao.DownloadInfo
 import com.hippo.ehviewer.dao.QuickSearch
 import com.hippo.ehviewer.download.DownloadManager
 import com.hippo.ehviewer.download.DownloadManager.DownloadInfoListener
+import com.hippo.ehviewer.gallerylist.GalleryListFeatures
+import com.hippo.ehviewer.gallerylist.ProjectedListController
 import com.hippo.ehviewer.ui.CommonOperations
 import com.hippo.ehviewer.ui.GalleryActivity
 import com.hippo.ehviewer.ui.dialog.SelectItemWithIconAdapter
@@ -161,8 +164,21 @@ class GalleryListScene :
     @SuppressLint("NotifyDataSetChanged")
     private val mFavouriteStatusRouterListener: FavouriteStatusRouter.Listener =
         FavouriteStatusRouter.Listener { _: Long, _: Int ->
-            mAdapter?.notifyDataSetChanged()
+            // When the list is projected, GalleryListFeatures notifies us and the rows are diffed instead.
+            if (mListController?.isActive != true) mAdapter?.notifyDataSetChanged()
         }
+
+    /** Hides favourites / folds versions on top of the helper's raw data. */
+    private var mListController: ProjectedListController? = null
+    private var mUnknownFavoritesTipShown = false
+
+    private val mFavoriteDataListener = GalleryListFeatures.Listener {
+        val controller = mListController ?: return@Listener
+        if (controller.isActive && controller.options.hideFavorites) {
+            controller.refreshWithDiff()
+            mHelper?.onProjectionChanged()
+        }
+    }
 
     private val mOnScrollListener: RecyclerView.OnScrollListener =
         object : RecyclerView.OnScrollListener() {
@@ -255,6 +271,7 @@ class GalleryListScene :
         super.onCreate(savedInstanceState)
         mDownloadManager.addDownloadInfoListener(mDownloadInfoListener)
         mFavouriteStatusRouter.addListener(mFavouriteStatusRouterListener)
+        GalleryListFeatures.addListener(mFavoriteDataListener)
         if (savedInstanceState == null) {
             onInit()
         } else {
@@ -265,6 +282,16 @@ class GalleryListScene :
     override fun onResume() {
         super.onResume()
         mAdapter?.type = Settings.listMode
+        val controller = mListController ?: return
+        // Settings may have changed, local favourites may have been edited in another scene.
+        val localChanged = GalleryListFeatures.reloadLocalFavorites()
+        if (controller.reloadOptions()) {
+            controller.refreshAll()
+            mHelper?.onProjectionChanged()
+        } else if (localChanged && controller.isActive && controller.options.hideFavorites) {
+            controller.refreshWithDiff()
+            mHelper?.onProjectionChanged()
+        }
     }
 
     private fun onInit() {
@@ -293,6 +320,7 @@ class GalleryListScene :
         super.onDestroy()
         mDownloadManager.removeDownloadInfoListener(mDownloadInfoListener)
         mFavouriteStatusRouter.removeListener(mFavouriteStatusRouterListener)
+        GalleryListFeatures.removeListener(mFavoriteDataListener)
     }
 
     private fun setSearchBarHint(searchBar: SearchBar) {
@@ -416,6 +444,7 @@ class GalleryListScene :
         val paddingBottomFab = resources.getDimensionPixelOffset(R.dimen.gallery_padding_bottom_fab)
         mViewTransition = BringOutTransition(mContentLayout, mSearchLayout)
         mHelper = GalleryListHelper()
+        mListController = ProjectedListController({ mHelper?.data ?: emptyList() }, { mAdapter })
         mContentLayout.setHelper(mHelper!!)
         mContentLayout.fastScroller.setOnDragHandlerListener(this)
         mContentLayout.setFitPaddingTop(paddingTopSB)
@@ -497,6 +526,7 @@ class GalleryListScene :
             mFabLayout = null
         }
         mAdapter = null
+        mListController = null
         mSearchLayout = null
         mSearchBar = null
         mSearchFab = null
@@ -688,11 +718,13 @@ class GalleryListScene :
         }
     }
 
+    private fun toDataPosition(adapterPosition: Int): Int = mListController?.dataIndex(adapterPosition) ?: adapterPosition
+
     fun onItemClick(view: View, position: Int) {
         if (null == mHelper || null == mRecyclerView) {
             return
         }
-        val gi = mHelper!!.getDataAtEx(position) ?: return
+        val gi = mHelper!!.getDataAtEx(toDataPosition(position)) ?: return
         val args = Bundle()
         args.putString(GalleryDetailScene.KEY_ACTION, GalleryDetailScene.ACTION_GALLERY_INFO)
         args.putParcelable(GalleryDetailScene.KEY_GALLERY_INFO, gi)
@@ -842,7 +874,7 @@ class GalleryListScene :
         if (null == context || null == activity || null == mHelper) {
             return false
         }
-        val gi = mHelper!!.getDataAtEx(position) ?: return true
+        val gi = mHelper!!.getDataAtEx(toDataPosition(position)) ?: return true
         val downloaded = mDownloadManager.getDownloadState(gi.gid) != DownloadInfo.STATE_INVALID
         val favourited = gi.favoriteSlot != -2
         val items = if (downloaded) {
@@ -1280,6 +1312,7 @@ class GalleryListScene :
 
     private fun onGetGalleryListSuccess(result: GalleryListParser.Result, taskId: Int) {
         if (mHelper != null && mHelper!!.isCurrentTask(taskId)) {
+            val visibleBefore = mHelper!!.visibleBeforeLoad()
             val emptyString =
                 getString(if (mUrlBuilder.mode == MODE_SUBSCRIPTION && result.noWatchedTags) R.string.gallery_list_empty_hit_subscription else R.string.gallery_list_empty_hit)
             mHelper!!.setEmptyString(emptyString)
@@ -1302,11 +1335,13 @@ class GalleryListScene :
                     result.galleryInfoList,
                 )
             }
+            mHelper?.afterPageLoaded(visibleBefore)
         }
     }
 
     private fun onGetGalleryListFailure(e: Exception, taskId: Int) {
         if (mHelper != null && mHelper!!.isCurrentTask(taskId)) {
+            mHelper!!.onRequestFinished()
             mHelper!!.onGetException(taskId, e)
         }
     }
@@ -1538,7 +1573,7 @@ class GalleryListScene :
         recyclerView: RecyclerView,
         type: Int,
     ) : GalleryAdapter(inflater, resources, recyclerView, type, true) {
-        override fun getItemCount(): Int = mHelper?.size() ?: 0
+        override fun getItemCount(): Int = mListController?.size() ?: mHelper?.size() ?: 0
 
         override fun onItemClick(view: View, position: Int) {
             this@GalleryListScene.onItemClick(view, position)
@@ -1546,7 +1581,13 @@ class GalleryListScene :
 
         override fun onItemLongClick(view: View, position: Int): Boolean = this@GalleryListScene.onItemLongClick(position)
 
-        override fun getDataAt(position: Int): GalleryInfo? = mHelper?.getDataAtEx(position)
+        override fun getDataAt(position: Int): GalleryInfo? = mHelper?.getDataAtEx(toDataPosition(position))
+
+        override fun getRowState(position: Int): GalleryAdapter.RowState? = mListController?.rowState(position)
+
+        override fun onToggleVersions(position: Int) {
+            mListController?.toggle(position)
+        }
     }
 
     private inner class GalleryListHelper : GalleryInfoContentHelper() {
@@ -1560,6 +1601,12 @@ class GalleryListScene :
             val activity = mainActivity
             if (null == activity || null == mHelper) {
                 return
+            }
+            mPendingTaskType = type
+            mRequestInFlight = true
+            if (type != TYPE_NEXT_PAGE_KEEP_POS) {
+                // Refresh, jump, previous page: user actions restore the auto-load budget.
+                mListController?.autoLoadPolicy?.onUserAction()
             }
             if (mIsTopList) {
                 mUrlBuilder.setJumpTo(page.toString())
@@ -1582,11 +1629,104 @@ class GalleryListScene :
 
         @SuppressLint("NotifyDataSetChanged")
         override fun notifyDataSetChanged() {
-            mAdapter?.notifyDataSetChanged()
+            mListController?.refreshAll() ?: mAdapter?.notifyDataSetChanged()
         }
 
         override fun notifyItemRangeInserted(positionStart: Int, itemCount: Int) {
-            mAdapter?.notifyItemRangeInserted(positionStart, itemCount)
+            mListController?.onRangeInserted(positionStart, itemCount)
+                ?: mAdapter?.notifyItemRangeInserted(positionStart, itemCount)
+        }
+
+        private var mPendingTaskType = TYPE_REFRESH
+        private var mRequestInFlight = false
+
+        fun onRequestFinished() {
+            mRequestInFlight = false
+        }
+
+        override fun dataToAdapterPosition(position: Int): Int = mListController?.adapterIndex(position) ?: position
+
+        override fun adapterToDataPosition(position: Int): Int = mListController?.dataIndex(position) ?: position
+
+        override fun onBottomReached(dy: Int): Boolean {
+            val controller = mListController ?: return true
+            if (!controller.isActive) return true
+            val policy = controller.autoLoadPolicy
+            if (dy != 0) {
+                // The user scrolled to the bottom.
+                policy.onUserAction()
+                return true
+            }
+            // Layout pass with a list too short to scroll: counts as an automatic request.
+            if (mRequestInFlight || policy.isExhausted) return false
+            policy.onAutoLoad()
+            return true
+        }
+
+        override fun onTipClick() {
+            val controller = mListController
+            if (controller != null && controller.isActive && data.isNotEmpty() && controller.visibleCount == 0) {
+                controller.autoLoadPolicy.onUserAction()
+                showProgressBar()
+                if (requestNextPage()) return
+            }
+            super.onTipClick()
+        }
+
+        fun visibleBeforeLoad(): Int = when (mPendingTaskType) {
+            TYPE_NEXT_PAGE, TYPE_NEXT_PAGE_KEEP_POS -> mListController?.visibleCount ?: 0
+            else -> 0
+        }
+
+        /** Called after a page was delivered to the helper. Tops up the results if too many were hidden. */
+        fun afterPageLoaded(visibleBefore: Int) {
+            mRequestInFlight = false
+            val controller = mListController ?: return
+            if (!controller.isActive) return
+            onProjectionChanged()
+            if (mPendingTaskType == TYPE_PRE_PAGE || mPendingTaskType == TYPE_PRE_PAGE_KEEP_POS) return
+            val visible = controller.visibleCount
+            val policy = controller.autoLoadPolicy
+            if (policy.shouldAutoLoad(hasNextPage, visible, visible - visibleBefore)) {
+                policy.onAutoLoad()
+                // Post: the helper finishes its own bookkeeping for this page first.
+                mRecyclerView?.post {
+                    val helper = mHelper ?: return@post
+                    if (!helper.mRequestInFlight) helper.requestNextPage()
+                }
+            }
+        }
+
+        /** Shows a tip instead of an empty list, and prompts for a sync if favourite states are unknown. */
+        fun onProjectionChanged() {
+            val controller = mListController ?: return
+            if (!controller.isActive) return
+            if (data.isNotEmpty()) {
+                if (controller.visibleCount == 0) {
+                    val canLoadMore = hasNextPage
+                    showTipText(
+                        getString(
+                            if (canLoadMore) R.string.gallery_list_all_hidden_load_more else R.string.gallery_list_all_hidden,
+                            controller.hiddenCount,
+                        ),
+                    )
+                } else if (shownViewIndex == 2) {
+                    showContentView()
+                }
+            }
+            if (controller.unknownFavorites > 0) {
+                GalleryListFeatures.maybeAutoSync()
+                if (!mUnknownFavoritesTipShown && !GalleryListFeatures.isSyncing) {
+                    mUnknownFavoritesTipShown = true
+                    this@GalleryListScene.context?.let {
+                        Toast.makeText(
+                            it,
+                            getString(R.string.gallery_list_favorite_state_unknown, controller.unknownFavorites),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
         }
 
         override fun onShowView(hiddenView: View, shownView: View) {

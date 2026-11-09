@@ -626,4 +626,28 @@
     <plurals name="year">
         <item quantity="other">年</item>
     </plurals>
+    <!-- Gallery list: hide favorites / fold versions -->
+    <string name="settings_eh_hide_favorited">お気に入り済みのギャラリーを隠す</string>
+    <string name="settings_eh_hide_favorited_summary">検索結果とギャラリー一覧で、ローカルまたはクラウドのお気に入りに含まれるギャラリーを隠します（ギャラリー ID で照合）。クラウドの状態が不明なギャラリーは表示されたままです。</string>
+    <string name="settings_eh_cloud_favorites_sync">クラウドお気に入りを同期</string>
+    <string name="settings_eh_cloud_favorites_sync_never">未同期。タップして今すぐ同期</string>
+    <string name="settings_eh_cloud_favorites_sync_status">前回の完全同期：%1$s、%2$d 件をキャッシュ済み。タップして今すぐ同期</string>
+    <string name="settings_eh_cloud_favorites_sync_failed">前回の同期に失敗：%1$s。%2$d 件をキャッシュ済み。タップして再試行</string>
+    <string name="settings_eh_cloud_favorites_syncing">クラウドお気に入りを同期中…</string>
+    <string name="settings_eh_cloud_favorites_sync_done">クラウドお気に入りを同期しました</string>
+    <string name="settings_eh_cloud_favorites_sync_partial">クラウドお気に入りを一部同期しました</string>
+    <string name="settings_eh_cloud_favorites_sync_error">クラウドお気に入りの同期に失敗しました</string>
+    <string name="settings_eh_fold_versions">ギャラリーの別バージョンをまとめる</string>
+    <string name="settings_eh_fold_versions_summary">検索結果とギャラリー一覧で、同じ作品の別アップロード・言語版・翻訳版を 1 件にまとめます</string>
+    <string name="settings_eh_fold_preferred_language">まとめた項目で優先する言語</string>
+    <string name="fold_language_auto">アプリの言語に従う</string>
+    <string name="fold_language_none">指定なし（品質優先）</string>
+    <string name="fold_language_original">日本語 / オリジナル</string>
+    <string name="gallery_list_expand_versions">他の %d 件のバージョンを表示</string>
+    <string name="gallery_list_collapse_versions">他の %d 件のバージョンを隠す</string>
+    <string name="gallery_list_other_version">上の作品の別バージョン</string>
+    <string name="gallery_list_favorite_unknown">お気に入り状態不明</string>
+    <string name="gallery_list_favorite_state_unknown">%d 件のギャラリーのクラウドお気に入り状態が不明なため、表示したままにしています。設定で同期できます。</string>
+    <string name="gallery_list_all_hidden">読み込んだ %d 件はすべて非表示またはまとめられています</string>
+    <string name="gallery_list_all_hidden_load_more">読み込んだ %d 件はすべて非表示またはまとめられています。タップしてさらに読み込む</string>
 </resources>
