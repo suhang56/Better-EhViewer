@@ -52,7 +52,9 @@ fi
 echo "================ Crashes ================"
 adb logcat -d -v time -b crash > "$OUT/crash-buffer.txt" 2>&1 || true
 adb logcat -d -v time > "$OUT/logcat-full.txt" 2>&1 || true
-if grep -n -A 25 "FATAL EXCEPTION" "$OUT/logcat-full.txt" "$OUT/crash-buffer.txt"; then
+# Ignore the suite's own "PASS no FATAL EXCEPTION ..." report lines (tag VERIFY).
+if grep -n -A 25 "FATAL EXCEPTION" "$OUT/logcat-full.txt" "$OUT/crash-buffer.txt" | grep -v "VERIFY" | grep -q "FATAL EXCEPTION"; then
+  grep -n -A 25 "FATAL EXCEPTION" "$OUT/logcat-full.txt" "$OUT/crash-buffer.txt" | grep -v "I/VERIFY"
   echo "^^^ FATAL EXCEPTION found in logcat"
 else
   echo "No FATAL EXCEPTION in logcat."

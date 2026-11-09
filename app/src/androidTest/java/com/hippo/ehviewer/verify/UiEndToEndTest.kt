@@ -340,8 +340,12 @@ class UiEndToEndTest {
                 Thread.sleep(3_000)
                 val after = Logcat.listRequestsSince(marker)
                 val delta = after.size - idle.size
-                after.drop(idle.size).forEach { r.fact("  request after tap: $it") }
-                r.check(delta == 1, "tapping the tip made exactly one more list request (made $delta)")
+                val afterTap = after.drop(idle.size)
+                afterTap.forEach { r.fact("  request after tap: $it") }
+                // The tap loads the next page; if folding/hiding leaves too few rows the list may top up
+                // automatically, but only within the budget and never requesting the same page twice.
+                r.check(delta in 1..(1 + maxAuto), "tapping the tip made 1..${1 + maxAuto} list requests (made $delta)")
+                r.check(afterTap.toSet().size == afterTap.size, "no page was requested twice: $afterTap")
                 r.check(AppUi.rows().isNotEmpty(), "the next page (not favourited) is shown: ${AppUi.rows().size} rows")
                 if (AppUi.rows().isNotEmpty()) {
                     val leaked = AppUi.rows().filter { row -> galleries.any { it.gid == row.gid } }

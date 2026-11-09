@@ -175,6 +175,9 @@ class GalleryListScene :
             }
         }
 
+    /** True from a finger drag until the list is idle again. */
+    private var mUserScrolling = false
+
     /** Hides favourites / folds versions on top of the helper's raw data. */
     private var mListController: ProjectedListController? = null
     private var mUnknownFavoritesTipShown = false
@@ -192,7 +195,13 @@ class GalleryListScene :
 
     private val mOnScrollListener: RecyclerView.OnScrollListener =
         object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {}
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                // A finger drag (and the fling that follows it) is a user scroll; smoothScrollBy() is not.
+                when (newState) {
+                    RecyclerView.SCROLL_STATE_DRAGGING -> mUserScrolling = true
+                    RecyclerView.SCROLL_STATE_IDLE -> mUserScrolling = false
+                }
+            }
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 if (dy >= mHideActionFabSlop) {
                     hideActionFab()
@@ -1683,13 +1692,16 @@ class GalleryListScene :
             val controller = mListController ?: return true
             if (!controller.isActive) return true
             val policy = controller.autoLoadPolicy
-            if (dy != 0) {
+            // Never request the same page twice while it is loading.
+            if (isRequestInFlight) return false
+            if (dy != 0 && mUserScrolling) {
                 // The user scrolled to the bottom.
                 policy.onUserAction()
                 return true
             }
-            // Layout pass with a list too short to scroll: an automatic request, counted once.
-            if (mAutoLoadPending || isRequestInFlight || policy.isExhausted) return false
+            // Layout pass or programmatic scroll (e.g. the helper's smoothScrollBy after a page
+            // arrives) on a list too short to scroll: an automatic request, counted once.
+            if (mAutoLoadPending || policy.isExhausted) return false
             policy.onAutoLoad()
             return true
         }
