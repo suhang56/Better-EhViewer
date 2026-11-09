@@ -64,8 +64,23 @@
 
 ## 测试
 
-纯逻辑代码位于 `app/src/main/java/com/hippo/ehviewer/gallerylist/`，单元测试位于 `app/src/test/`：
+纯逻辑代码位于 `app/src/main/java/com/hippo/ehviewer/gallerylist/`，单元测试位于 `app/src/test/`
+（含 20 个“不得误合并”的对抗用例：前编/后编、[Part 2]、1.5 与 15、不同展会、[AI Generated] 等）：
 
 ```
 ./gradlew :app:testDebugUnitTest
 ```
+
+设备端验证位于 `app/src/androidTest/`，由 `.github/workflows/verify.yml` 在 API 34 模拟器上、
+以游客身份访问 **真实的 e-hentai.org** 运行（`./gradlew :app:connectedDebugAndroidTest`）：
+
+* 真实搜索页的解析与折叠（逐组输出成员、语言、代表），以及跨页去重；
+* gdata API 的 `parent_gid` / `first_gid` 字段与详情页 Parent / Newer versions 的一致性，以及版本链登记；
+* 云端收藏缓存在 Room 中的增删改、完整/不完整/失败同步、4 万行批量；
+* 列表页收藏色标解析（在真实页面上注入 E-H 的收藏样式）；
+* 真实界面端到端：展开 →“同一作品的其他版本” → 打开其中一个版本 → 返回后仍展开且滚动位置不变 → 收起；
+  收藏后就地隐藏且列表不跳动、取消收藏后回到原位置；滚动分页无重复；网格模式角标；
+  前 4 页全部已收藏时请求数有上限（1 + 3）、空闲时不再请求、点按提示后继续加载且不重复请求同一页。
+
+未覆盖：需要登录的部分（真实云端收藏页、ExHentai）无法在 CI 中以游客身份验证，
+相应逻辑由单元测试与注入色标的设备测试覆盖。
