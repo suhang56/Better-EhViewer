@@ -16,11 +16,12 @@ jobs:
       - name: Fetch list pages in every display mode and a detail page
         run: |
           set -u
+          set +e
           UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
           J=cookies.txt
           echo -e "e-hentai.org\tFALSE\t/\tFALSE\t0\tnw\t1" > $J
           for m in m p l e t; do
-            curl -s -A "$UA" -b $J -c $J "https://e-hentai.org/?f_search=artist%3Ashindol%24&inline_set=dm_$m" -o list_$m.html
+            curl -sL -w "HTTP %{http_code} after %{num_redirects} redirect(s)\n" -A "$UA" -b $J -c $J "https://e-hentai.org/?f_search=artist%3Ashindol%24&inline_set=dm_$m" -o list_$m.html
             echo "===== display mode $m: $(wc -c < list_$m.html) bytes"
             # Everything around the first rating element
             python3 - "$m" <<'PY'
@@ -39,13 +40,13 @@ jobs:
           # A detail page, for comparison
           GL=$(grep -o 'https://e-hentai.org/g/[0-9]*/[0-9a-f]*/' list_m.html | head -1)
           echo "===== detail page $GL"
-          curl -s -A "$UA" -b $J "$GL" -o detail.html
+          curl -sL -A "$UA" -b $J "$GL" -o detail.html
           echo "detail bytes: $(wc -c < detail.html)"
           grep -o '.\{0,200\}rating_count.\{0,200\}' detail.html | head -3
           grep -o '.\{0,120\}rating_label.\{0,120\}' detail.html | head -3
           # Detail page variants that might be lighter
           for q in "?hc=0" "?p=99999" "?inline_set=ts_m"; do
-            curl -s -A "$UA" -b $J "$GL$q" -o d.html
+            curl -sL -A "$UA" -b $J "$GL$q" -o d.html
             echo "variant $q: $(wc -c < d.html) bytes, rating_count present: $(grep -c rating_count d.html)"
           done
           # gdata: every key it returns
