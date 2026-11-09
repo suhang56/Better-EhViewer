@@ -756,4 +756,13 @@
         <item quantity="other">All %d loaded results are hidden or folded. Tap to load more</item>
     </plurals>
     <string name="gallery_list_swipe_up_load_more">Swipe up to load more results</string>
+    <string name="settings_eh_min_rating_count">Minimum number of ratings</string>
+    <string name="min_rating_count_off">Off</string>
+    <string name="min_rating_count_5">At least 5 ratings</string>
+    <string name="min_rating_count_10">At least 10 ratings</string>
+    <string name="min_rating_count_20">At least 20 ratings</string>
+    <string name="min_rating_count_50">At least 50 ratings</string>
+    <string name="min_rating_count_100">At least 100 ratings</string>
+    <string name="min_rating_count_200">At least 200 ratings</string>
+    <string name="min_rating_count_500">At least 500 ratings</string>
 </resources>

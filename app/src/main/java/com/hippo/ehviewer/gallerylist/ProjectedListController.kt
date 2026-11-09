@@ -47,7 +47,7 @@ internal class ProjectedListController(
 
     val visibleCount: Int get() = if (isActive) current().size else data().size
     val unknownFavorites: Int get() = if (isActive) current().unknownFavorites else 0
-    val hiddenCount: Int get() = if (isActive) current().let { it.hiddenFavorites + it.foldedAway + it.duplicates } else 0
+    val hiddenCount: Int get() = if (isActive) current().let { it.hiddenFavorites + it.foldedAway + it.duplicates + it.hiddenLowRatingCount } else 0
 
     private fun current(): GalleryListProjector.Projection = projection ?: compute().also { projection = it }
 
@@ -56,6 +56,7 @@ internal class ProjectedListController(
         val entries = raw.map { it?.let(GalleryListFeatures::toEntry) }
         val resolver = if (options.hideFavorites) GalleryListFeatures.newResolver() else null
         val chains = GalleryListFeatures.versionChains
+        val ratingCounts = GalleryListFeatures.ratingCounts
         return GalleryListProjector.project(
             entries = entries,
             options = options,
@@ -63,6 +64,7 @@ internal class ProjectedListController(
             chainRootOf = chains::rootOf,
             newestOf = chains::newestOf,
             expandedGids = expandedGids,
+            ratingCountOf = { gid -> if (options.minRatingCount > 0) ratingCounts.countOf(gid) else null },
         )
     }
 

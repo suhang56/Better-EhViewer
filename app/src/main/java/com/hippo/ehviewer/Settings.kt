@@ -89,6 +89,8 @@ object Settings {
     const val FOLD_PREFERRED_LANGUAGE_AUTO = "auto"
     const val FOLD_PREFERRED_LANGUAGE_NONE = "none"
     const val KEY_CLOUD_FAVORITES_SYNC = "cloud_favorites_sync"
+    const val KEY_MIN_RATING_COUNT = "min_rating_count"
+    private const val DEFAULT_MIN_RATING_COUNT = 0
     private const val KEY_CLOUD_FAV_LAST_FULL_SYNC = "cloud_fav_last_full_sync"
     private const val KEY_CLOUD_FAV_LAST_ATTEMPT = "cloud_fav_last_attempt"
     private const val KEY_CLOUD_FAV_LAST_ERROR = "cloud_fav_last_error"
@@ -492,6 +494,10 @@ object Settings {
             FOLD_PREFERRED_LANGUAGE_NONE -> null
             else -> value
         }
+
+    /** Hide galleries with fewer ratings than this in gallery lists; 0 = off. */
+    val minRatingCount: Int
+        get() = getIntFromStr(KEY_MIN_RATING_COUNT, DEFAULT_MIN_RATING_COUNT).coerceAtLeast(0)
 
     var cloudFavLastFullSync: Long
         get() = getLong(KEY_CLOUD_FAV_LAST_FULL_SYNC, 0)

@@ -17,11 +17,13 @@
  */
 package com.hippo.ehviewer.verify
 
+import androidx.preference.PreferenceManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import com.hippo.ehviewer.EhApplication
 import com.hippo.ehviewer.EhDB
+import com.hippo.ehviewer.Settings
 import com.hippo.ehviewer.client.data.GalleryInfo
 import com.hippo.ehviewer.gallerylist.AutoLoadPolicy
 import com.hippo.ehviewer.gallerylist.GalleryListFeatures
@@ -357,6 +359,66 @@ class UiEndToEndTest {
             GalleryListFeatures.reloadLocalFavorites()
             r.fact("removed the ${added.size} temporary local favourites")
         }
+    }
+
+    // ------------------------------------------------------------------ (6) minimum number of ratings
+
+    private fun clockMs(t: String): Long {
+        // "MM-dd HH:mm:ss.SSS"
+        val (h, m, rest) = t.substringAfter(' ').split(':')
+        val (sec, ms) = rest.split('.')
+        return ((h.toLong() * 60 + m.toLong()) * 60 + sec.toLong()) * 1000 + ms.toLong()
+    }
+
+    @Test
+    fun step6MinRatingCount() = uiTest("step6MinRatingCount") { r ->
+        // A threshold no gallery reaches: every gallery whose count is looked up must disappear.
+        AppUi.prepare(hide = false, fold = false, listMode = AppUi.LIST_MODE_LIST, minRatingCount = 100_000)
+        val marker = Logcat.mark()
+        AppUi.launch(Live.searchUrl("artist:shindol$"))
+        if (!AppUi.waitForRows(r, 1)) r.fail("gallery list did not load")
+        val initial = AppUi.rows().map { it.gid }
+        r.fact("initial rows: ${initial.size}, first/last visible ${AppUi.firstVisible()}/${AppUi.lastVisible()}")
+        Thread.sleep(20_000)
+        val lookups = Logcat.ratingLookupsSince(marker)
+        r.fact("rating count lookups in ~20 s: ${lookups.size}: ${lookups.map { it.second }}")
+        r.check(lookups.isNotEmpty(), "rating counts were looked up")
+        val gaps = lookups.zipWithNext { a, b -> clockMs(b.first) - clockMs(a.first) }
+        r.fact("gaps between lookups (ms): $gaps")
+        r.check(gaps.all { it >= 1000 }, "lookups are spaced at least 1 s apart (min gap ${gaps.minOrNull()} ms)")
+        r.check(lookups.size <= 21, "at most ~1 lookup per 1.2 s (${lookups.size} in ~20 s)")
+        val gids = lookups.map { it.second }
+        r.check(gids.toSet().size == gids.size, "no gallery was looked up twice")
+        // (Hidden rows can make the list load another page, whose rows may be looked up too.)
+        val everListed = (initial + AppUi.rows().map { it.gid }).toSet()
+        r.check(everListed.containsAll(gids), "only galleries of this list were looked up")
+        // Only rows near the screen: the first lookup targets must be at the top of the list.
+        val firstTargets = gids.take(5)
+        r.check(firstTargets.all { initial.indexOf(it) in 0..(AppUi.lastVisible().coerceAtLeast(5) + 10 + gids.size) }, "lookups start with rows on or near the screen: positions ${firstTargets.map { initial.indexOf(it) }}")
+        val rowsNow = AppUi.rows().map { it.gid }
+        val stillShown = gids.filter { it in rowsNow }
+        r.check(stillShown.isEmpty(), "every looked-up gallery (all below 100000 ratings) is hidden: still shown $stillShown")
+        val initialLeft = initial.filter { it in rowsNow }
+        r.check(initialLeft == initial.filter { it !in gids }, "of the first page exactly the looked-up galleries are gone: ${initial.size} -> ${initialLeft.size} (looked up ${gids.count { it in initial }})")
+        val unknown = initial.filter { it !in gids }
+        r.check(unknown.all { it in rowsNow }, "galleries not looked up yet stay visible (${unknown.size})")
+
+        // Leaving the list stops lookups.
+        device.pressHome()
+        Thread.sleep(1500)
+        val stopMarker = Logcat.mark()
+        Thread.sleep(8_000)
+        val afterLeaving = Logcat.ratingLookupsSince(stopMarker)
+        r.check(afterLeaving.isEmpty(), "no lookups while the list is not visible (${afterLeaving.size})")
+
+        // Turning the filter off brings every gallery back.
+        PreferenceManager.getDefaultSharedPreferences(AppUi.context).edit().putString(Settings.KEY_MIN_RATING_COUNT, "0").commit()
+        AppUi.launch(Live.searchUrl("artist:shindol$"))
+        AppUi.waitForRows(r, 1)
+        r.check(AppUi.waitUntil(15_000) { AppUi.rows().size >= initial.size }, "with the filter off all ${initial.size} galleries are listed again (${AppUi.rows().size})")
+        val offMarker = Logcat.mark()
+        Thread.sleep(5_000)
+        r.check(Logcat.ratingLookupsSince(offMarker).isEmpty(), "no lookups when the filter is off")
     }
 
     companion object {

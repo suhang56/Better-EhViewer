@@ -71,6 +71,7 @@ import com.hippo.drawable.AddDeleteDrawable
 import com.hippo.drawable.DrawerArrowDrawable
 import com.hippo.easyrecyclerview.EasyRecyclerView
 import com.hippo.easyrecyclerview.FastScroller.OnDragHandlerListener
+import com.hippo.easyrecyclerview.LayoutManagerUtils
 import com.hippo.easyrecyclerview.LinearDividerItemDecoration
 import com.hippo.ehviewer.EhApplication.Companion.favouriteStatusRouter
 import com.hippo.ehviewer.EhDB
@@ -187,10 +188,33 @@ class GalleryListScene :
 
     private val mFavoriteDataListener = GalleryListFeatures.Listener {
         val controller = mListController ?: return@Listener
-        if (controller.isActive && controller.options.hideFavorites) {
+        if (controller.isActive && (controller.options.hideFavorites || controller.options.minRatingCount > 0)) {
             controller.refreshWithDiff()
             mHelper?.onProjectionChanged()
         }
+    }
+
+    /**
+     * Asks for the rating counts of the galleries on screen (plus a few below), nearest first.
+     * Nothing else is ever looked up, so the extra requests follow what the user actually sees.
+     */
+    private fun requestRatingCountsForVisibleRows() {
+        val controller = mListController ?: return
+        val helper = mHelper ?: return
+        val recyclerView = mRecyclerView ?: return
+        if (!controller.isActive || controller.options.minRatingCount <= 0 || !isResumed) {
+            GalleryListFeatures.clearRatingCountRequests()
+            return
+        }
+        val layoutManager = recyclerView.layoutManager ?: return
+        val first = LayoutManagerUtils.getFirstVisibleItemPosition(layoutManager).coerceAtLeast(0)
+        val last = LayoutManagerUtils.getLastVisibleItemPosition(layoutManager)
+        if (last < 0) return
+        val end = (last + RATING_COUNT_LOOKAHEAD).coerceAtMost(controller.size() - 1)
+        val items = (first..end).mapNotNull { row ->
+            helper.getDataAtEx(controller.dataIndex(row))?.let { it.gid to it.token }
+        }
+        GalleryListFeatures.requestRatingCounts(items)
     }
 
     private val mOnScrollListener: RecyclerView.OnScrollListener =
@@ -199,7 +223,10 @@ class GalleryListScene :
                 // A finger drag (and the fling that follows it) is a user scroll; smoothScrollBy() is not.
                 when (newState) {
                     RecyclerView.SCROLL_STATE_DRAGGING -> mUserScrolling = true
-                    RecyclerView.SCROLL_STATE_IDLE -> mUserScrolling = false
+                    RecyclerView.SCROLL_STATE_IDLE -> {
+                        mUserScrolling = false
+                        requestRatingCountsForVisibleRows()
+                    }
                 }
             }
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -306,13 +333,19 @@ class GalleryListScene :
         val localChanged = GalleryListFeatures.reloadLocalFavorites()
         if (controller.reloadOptions()) {
             controller.refreshAll()
-        } else if (controller.isActive && controller.options.hideFavorites) {
-            // Favourites may also have changed while this view was destroyed (e.g. in the detail scene).
+        } else if (controller.isActive && (controller.options.hideFavorites || controller.options.minRatingCount > 0)) {
+            // Favourites / rating counts may also have changed while this view was destroyed.
             controller.refreshWithDiff()
         } else if (localChanged) {
             controller.refreshAll()
         }
         mHelper?.onProjectionChanged()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Only the list on screen may cause rating count lookups.
+        GalleryListFeatures.clearRatingCountRequests()
     }
 
     private fun onInit() {
@@ -1784,6 +1817,10 @@ class GalleryListScene :
                 )
                 isProjectionTipShown = true
             }
+            // The visible rows changed: update which rating counts are wanted once laid out.
+            if (controller.isActive && controller.options.minRatingCount > 0) {
+                mRecyclerView?.post { requestRatingCountsForVisibleRows() }
+            }
             if (controller.isActive && controller.unknownFavorites > 0) {
                 GalleryListFeatures.onUnknownFavoritesShown()
                 if (!mUnknownFavoritesTipShown && !GalleryListFeatures.isResolvingUnknown) {
@@ -1893,6 +1930,7 @@ class GalleryListScene :
         const val KEY_HAS_FIRST_REFRESH = "has_first_refresh"
         const val KEY_STATE = "state"
         private const val KEY_EXPANDED_GIDS = "expanded_gids"
+        private const val RATING_COUNT_LOOKAHEAD = 10
         private const val KEY_PROJECTION_TIP = "projection_tip"
         private const val BACK_PRESSED_INTERVAL = 2000
         private const val STATE_NORMAL = 0

@@ -56,6 +56,7 @@ import com.hippo.ehviewer.client.parser.UserConfigParser
 import com.hippo.ehviewer.client.parser.VoteCommentParser
 import com.hippo.ehviewer.client.parser.VoteTagParser
 import com.hippo.ehviewer.gallerylist.GalleryListFeatures
+import com.hippo.ehviewer.gallerylist.RatingCountParser
 import com.hippo.network.StatusCodeException
 import java.io.File
 import kotlin.math.ceil
@@ -273,6 +274,8 @@ object EhEngine {
             // Remember upload version chains for folding.
             gd.parent?.let { GalleryDetailUrlParser.parse(it, false) }?.let { GalleryListFeatures.versionChains.link(it.gid, gd.gid) }
             gd.newerVersions.forEach { GalleryListFeatures.versionChains.link(gd.gid, it.gid) }
+            // Free rating count for the "minimum number of ratings" filter (0 may mean "not parsed").
+            if (gd.ratingCount > 0) GalleryListFeatures.onRatingCountKnown(gd.gid, gd.ratingCount)
         }
     }
 
@@ -307,6 +310,7 @@ object EhEngine {
         return EhRequestBuilder(url, referer, origin)
             .post(requestBody)
             .executeAndParsingWith(RateGalleryParser::parse)
+            .also { GalleryListFeatures.onRatingCountKnown(gid, it.ratingCount) }
     }
 
     suspend fun commentGallery(
@@ -368,6 +372,24 @@ object EhEngine {
                 GalleryListFeatures.onFavoritesPage(galleryInfoList)
                 fillGalleryList(galleryInfoList, url, false)
             }
+    }
+
+    /**
+     * Number of ratings of one gallery, for the "minimum number of ratings" filter. Only the
+     * detail page has it; the body is scanned with a regex instead of a full parse.
+     *
+     * @return the count, or null if the page has none (e.g. the gallery was removed)
+     * @throws com.hippo.ehviewer.gallerylist.RatingCountParser.BannedException on an IP ban page
+     */
+    suspend fun getRatingCount(gid: Long, token: String?): Int? {
+        val url = EhUrl.getGalleryDetailUrl(gid, token)
+        Log.d(TAG, "rating count lookup: $url")
+        return okHttpClient.newCall(EhRequestBuilder(url, EhUrl.referer).build()).executeAsync().use { response ->
+            val body = response.body.string()
+            val count = RatingCountParser.parse(body)
+            if (count == null && response.code >= 400) throw StatusCodeException(response.code)
+            count
+        }
     }
 
     /** Favourites page for the cloud favourites cache sync: no extra API requests. */

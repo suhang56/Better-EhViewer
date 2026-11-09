@@ -682,4 +682,13 @@
         <item quantity="other">已載入的 %d 個結果均已隱藏或摺疊，點按載入更多</item>
     </plurals>
     <string name="gallery_list_swipe_up_load_more">上滑載入更多結果</string>
+    <string name="settings_eh_min_rating_count">最少評分人數</string>
+    <string name="min_rating_count_off">關閉</string>
+    <string name="min_rating_count_5">至少 5 人評分</string>
+    <string name="min_rating_count_10">至少 10 人評分</string>
+    <string name="min_rating_count_20">至少 20 人評分</string>
+    <string name="min_rating_count_50">至少 50 人評分</string>
+    <string name="min_rating_count_100">至少 100 人評分</string>
+    <string name="min_rating_count_200">至少 200 人評分</string>
+    <string name="min_rating_count_500">至少 500 人評分</string>
 </resources>

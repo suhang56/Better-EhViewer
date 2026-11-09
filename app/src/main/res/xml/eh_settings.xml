@@ -244,4 +244,13 @@
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
 
+    <rikka.preference.SimpleMenuPreference
+        android:defaultValue="0"
+        android:key="min_rating_count"
+        android:title="@string/settings_eh_min_rating_count"
+        app:entries="@array/min_rating_count_entries"
+        app:entryValues="@array/min_rating_count_entry_values"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
 </PreferenceScreen>

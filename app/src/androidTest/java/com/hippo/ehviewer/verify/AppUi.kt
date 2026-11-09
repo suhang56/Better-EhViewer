@@ -46,7 +46,7 @@ import java.util.regex.Pattern
 internal object AppUi {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     val device: UiDevice by lazy { UiDevice.getInstance(instrumentation) }
-    private val context get() = instrumentation.targetContext
+    val context get() = instrumentation.targetContext
     val packageName: String get() = context.packageName
 
     const val LIST_MODE_LIST = 0
@@ -71,7 +71,7 @@ internal object AppUi {
     }
 
     /** Settings that skip sign-in, site selection and first-run dialogs, plus the feature switches. */
-    fun prepare(hide: Boolean, fold: Boolean, listMode: Int) {
+    fun prepare(hide: Boolean, fold: Boolean, listMode: Int, minRatingCount: Int = 0) {
         Live.setUpGuest()
         Settings.putAppLinkVerifyTip(true)
         Settings.putGuideGallery(false)
@@ -80,6 +80,7 @@ internal object AppUi {
             .putBoolean(Settings.KEY_FOLD_GALLERY_VERSIONS, fold)
             .putString(Settings.KEY_FOLD_PREFERRED_LANGUAGE, Settings.FOLD_PREFERRED_LANGUAGE_AUTO)
             .putString(Settings.KEY_LIST_MODE, listMode.toString())
+            .putString(Settings.KEY_MIN_RATING_COUNT, minRatingCount.toString())
             .commit()
     }
 
@@ -198,6 +199,14 @@ internal object Logcat {
         val index = lines.indexOfLast { it.contains(marker) }
         return if (index < 0) lines else lines.drop(index + 1)
     }
+
+    /** Rating count lookups ("rating count lookup: <url>") made after [marker], as (time, gid). */
+    fun ratingLookupsSince(marker: String): List<Pair<String, Long>> = linesSince(marker, "-s $ENGINE_TAG:V")
+        .filter { it.contains("rating count lookup:") }
+        .mapNotNull { line ->
+            val gid = Regex("/g/(\\d+)/").find(line)?.groupValues?.get(1)?.toLongOrNull() ?: return@mapNotNull null
+            line.take(18).trim() to gid
+        }
 
     /** Gallery list requests (EhEngine logs every URL it fetches) made after [marker]. */
     fun listRequestsSince(marker: String): List<String> = linesSince(marker, "-s $ENGINE_TAG:V")

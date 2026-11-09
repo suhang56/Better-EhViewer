@@ -672,4 +672,13 @@
         <item quantity="other">読み込んだ %d 件はすべて非表示またはまとめられています。タップしてさらに読み込む</item>
     </plurals>
     <string name="gallery_list_swipe_up_load_more">上にスワイプしてさらに読み込む</string>
+    <string name="settings_eh_min_rating_count">最低評価人数</string>
+    <string name="min_rating_count_off">オフ</string>
+    <string name="min_rating_count_5">5 人以上が評価</string>
+    <string name="min_rating_count_10">10 人以上が評価</string>
+    <string name="min_rating_count_20">20 人以上が評価</string>
+    <string name="min_rating_count_50">50 人以上が評価</string>
+    <string name="min_rating_count_100">100 人以上が評価</string>
+    <string name="min_rating_count_200">200 人以上が評価</string>
+    <string name="min_rating_count_500">500 人以上が評価</string>
 </resources>

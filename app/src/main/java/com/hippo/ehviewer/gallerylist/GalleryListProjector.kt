@@ -30,8 +30,10 @@ object GalleryListProjector {
         val foldVersions: Boolean,
         /** Simple language code to prefer as group representative, null for none. */
         val preferredLanguage: String?,
+        /** Hide galleries KNOWN to have fewer ratings than this; 0 = off. Unknown counts stay visible. */
+        val minRatingCount: Int = 0,
     ) {
-        val isIdentity: Boolean get() = !hideFavorites && !foldVersions
+        val isIdentity: Boolean get() = !hideFavorites && !foldVersions && minRatingCount <= 0
     }
 
     enum class Role {
@@ -74,6 +76,8 @@ object GalleryListProjector {
         val unknownFavorites: Int,
         val duplicates: Int,
         val foldedAway: Int,
+        /** Galleries hidden because their known rating count is below the minimum. */
+        val hiddenLowRatingCount: Int = 0,
         /** Group key to the gids of all its (visible) versions, only for groups of 2 or more. */
         val groupMembers: Map<Long, List<Long>> = emptyMap(),
     ) {
@@ -105,6 +109,7 @@ object GalleryListProjector {
         chainRootOf: (Long) -> Long? = { null },
         newestOf: (Long) -> Long? = { null },
         expandedGids: Set<Long> = emptySet(),
+        ratingCountOf: (Long) -> Int? = { null },
     ): Projection {
         if (options.isIdentity) {
             val rows = ArrayList<Row>(entries.size)
@@ -120,6 +125,7 @@ object GalleryListProjector {
         var duplicates = 0
         var hidden = 0
         var unknown = 0
+        var lowRated = 0
         val visibleIndices = ArrayList<Int>(entries.size)
         val states = HashMap<Long, FavoriteState>()
         entries.forEachIndexed { i, e ->
@@ -136,6 +142,13 @@ object GalleryListProjector {
                     return@forEachIndexed
                 }
                 if (state == FavoriteState.UNKNOWN) unknown++
+            }
+            if (options.minRatingCount > 0) {
+                val count = ratingCountOf(e.gid)
+                if (count != null && count < options.minRatingCount) {
+                    lowRated++
+                    return@forEachIndexed
+                }
             }
             visibleIndices += i
         }
@@ -201,7 +214,7 @@ object GalleryListProjector {
             }
         }
         fillForward(map, rows.size)
-        return Projection(rows, map, hidden, unknown, duplicates, foldedAway, groupMembers)
+        return Projection(rows, map, hidden, unknown, duplicates, foldedAway, lowRated, groupMembers)
     }
 
     private fun fixRawMap(map: IntArray, entries: List<GalleryEntry?>, rows: List<Row>) {

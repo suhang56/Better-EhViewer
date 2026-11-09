@@ -28,7 +28,9 @@ import com.hippo.ehviewer.client.EhEngine
 import com.hippo.ehviewer.client.data.FavListUrlBuilder
 import com.hippo.ehviewer.client.data.GalleryInfo
 import com.hippo.ehviewer.dao.CloudFavoriteInfo
+import com.hippo.ehviewer.dao.RatingCountInfo
 import com.hippo.ehviewer.dao.buildCloudFavoritesDB
+import com.hippo.ehviewer.dao.buildGalleryStatsDB
 import com.hippo.util.launchIO
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -220,7 +222,100 @@ object GalleryListFeatures {
         hideFavorites = Settings.hideFavoritedGalleries,
         foldVersions = Settings.foldGalleryVersions,
         preferredLanguage = Settings.foldPreferredLanguage,
+        minRatingCount = Settings.minRatingCount,
     )
+
+    // ---------------------------------------------------------------- rating counts
+
+    private val statsDb by lazy { buildGalleryStatsDB(EhApplication.application) }
+
+    /** Permanent cache of rating counts (only the detail page has them). */
+    val ratingCounts = RatingCountCache(
+        object : RatingCountCache.Persistence {
+            override fun loadAll(): Map<Long, RatingCountCache.Entry> = statsDb.ratingCountsDao().list()
+                .associate { it.gid to RatingCountCache.Entry(it.gid, it.count, it.fetchedAt) }
+            override fun upsert(entries: Collection<RatingCountCache.Entry>) = statsDb.ratingCountsDao()
+                .upsert(entries.map { RatingCountInfo(it.gid, it.count, it.fetchedAt) })
+        },
+    )
+
+    private val lookupThrottle = LookupThrottle()
+    private val lookupLock = Any()
+
+    /** Galleries the visible list wants a rating count for, nearest to the screen first. */
+    private var wantedRatingCounts: List<Pair<Long, String?>> = emptyList()
+
+    /** Galleries whose lookup failed recently (gid -> time), skipped for [LOOKUP_RETRY_MS]. */
+    private val failedLookups = HashMap<Long, Long>()
+
+    @Volatile
+    private var lookupJob: Job? = null
+
+    private const val LOOKUP_RETRY_MS = 10L * 60 * 1000
+
+    /** A rating count seen for free (detail page opened, gallery rated). */
+    fun onRatingCountKnown(gid: Long, count: Int) {
+        runCatching { ratingCounts.record(gid, count) }.onFailure { Log.e(TAG, "record rating count", it) }
+        if (Settings.minRatingCount > 0) notifyChanged()
+    }
+
+    /**
+     * Replaces the set of galleries whose rating count the list wants, in priority order
+     * (on screen first). Only galleries actually shown are ever looked up, one at a time
+     * and throttled by [LookupThrottle].
+     */
+    fun requestRatingCounts(items: List<Pair<Long, String?>>) {
+        val min = Settings.minRatingCount
+        val needed = if (min > 0) items.filter { (gid, _) -> ratingCounts.needsLookup(gid, min) } else emptyList()
+        synchronized(lookupLock) { wantedRatingCounts = needed }
+        if (needed.isNotEmpty() && lookupJob?.isActive != true) {
+            lookupJob = launchIO { runRatingCountLookups() }
+        }
+    }
+
+    /** The list is no longer visible: stop looking up. */
+    fun clearRatingCountRequests() {
+        synchronized(lookupLock) { wantedRatingCounts = emptyList() }
+    }
+
+    private fun nextLookup(now: Long): Pair<Long, String?>? = synchronized(lookupLock) {
+        val min = Settings.minRatingCount
+        if (min <= 0) return@synchronized null
+        failedLookups.entries.removeAll { now - it.value !in 0..LOOKUP_RETRY_MS }
+        wantedRatingCounts.firstOrNull { (gid, _) -> gid !in failedLookups && ratingCounts.needsLookup(gid, min) }
+    }
+
+    private suspend fun runRatingCountLookups() {
+        while (true) {
+            val (gid, token) = nextLookup(System.currentTimeMillis()) ?: return
+            val wait = synchronized(lookupThrottle) { lookupThrottle.delayBeforeNext() }
+            if (wait > 0) {
+                // Re-check what is wanted after waiting: the user may have scrolled or left.
+                delay(wait)
+                continue
+            }
+            synchronized(lookupThrottle) { lookupThrottle.onRequest() }
+            try {
+                val count = EhEngine.getRatingCount(gid, token)
+                synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
+                if (count != null) {
+                    ratingCounts.record(gid, count)
+                    notifyChanged()
+                } else {
+                    synchronized(lookupLock) { failedLookups[gid] = System.currentTimeMillis() }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RatingCountParser.BannedException) {
+                Log.w(TAG, "E-Hentai reports an IP ban, pausing rating count lookups", e)
+                synchronized(lookupThrottle) { lookupThrottle.onBanned() }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Rating count lookup of $gid failed", e)
+                synchronized(lookupThrottle) { lookupThrottle.onFailure() }
+                synchronized(lookupLock) { failedLookups[gid] = System.currentTimeMillis() }
+            }
+        }
+    }
 
     fun toEntry(gi: GalleryInfo): GalleryEntry = GalleryEntry(
         gid = gi.gid,
