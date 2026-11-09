@@ -101,6 +101,21 @@ class GalleryListProjectorTest {
         // Stable ids: group row keeps its id regardless of which version represents it.
         assertEquals("g10", p.rows[0].stableId)
         assertEquals("m10", p.rows[1].stableId)
+        assertEquals(setOf(10L, 13L), p.groupMembers[10L]!!.toSet())
+    }
+
+    @Test
+    fun sameNameDifferentWorksStaySeparate() {
+        val list = listOf(
+            entry(1, "[Artist One] Summer Vacation"),
+            entry(2, "[Artist Two] Summer Vacation"),
+            entry(3, "Summer Vacation"),
+            entry(4, "Summer Vacation"),
+        )
+        val p = GalleryListProjector.project(list, fold, noneFavorited)
+        assertEquals(listOf(1L, 2L, 3L, 4L), gids(p))
+        assertTrue(p.rows.all { it.role == Role.SINGLE })
+        assertEquals(0, p.foldedAway)
     }
 
     @Test

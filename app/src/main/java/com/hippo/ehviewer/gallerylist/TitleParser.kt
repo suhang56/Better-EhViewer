@@ -90,8 +90,22 @@ object TitleParser {
         return sb.toString()
     }
 
+    private const val CACHE_SIZE = 4096
+    private val EMPTY = ParsedTitle("", emptySet(), emptySet(), emptyList())
+    private val cache = object : LinkedHashMap<String, ParsedTitle>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ParsedTitle>?) = size > CACHE_SIZE
+    }
+
+    /** Parses [raw], memoized: list projections re-parse the same titles on every page load. */
     fun parse(raw: String?): ParsedTitle {
-        if (raw.isNullOrBlank()) return ParsedTitle("", emptySet(), emptySet(), emptyList())
+        if (raw.isNullOrBlank()) return EMPTY
+        synchronized(cache) { cache[raw] }?.let { return it }
+        val parsed = parseUncached(raw)
+        synchronized(cache) { cache[raw] = parsed }
+        return parsed
+    }
+
+    private fun parseUncached(raw: String): ParsedTitle {
         var text = normalize(raw)
         val creators = LinkedHashSet<String>()
 

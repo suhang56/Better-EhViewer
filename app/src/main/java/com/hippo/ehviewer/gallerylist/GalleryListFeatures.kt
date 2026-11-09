@@ -59,6 +59,9 @@ object GalleryListFeatures {
     var isSyncing = false
         private set
 
+    @Volatile
+    private var lastSyncResult: CloudFavoriteSyncer.Result? = null
+
     private val cloudDb by lazy { buildCloudFavoritesDB(EhApplication.application) }
 
     private val persistence = object : CloudFavoriteCache.Persistence {
@@ -210,7 +213,7 @@ object GalleryListFeatures {
         if (!EhCookieStore.hasSignedIn()) return null
         if (syncMutex.isLocked) {
             syncMutex.withLock { }
-            return null
+            return lastSyncResult
         }
         return syncMutex.withLock {
             isSyncing = true
@@ -233,6 +236,7 @@ object GalleryListFeatures {
                     delayBetweenPages = { delay(SYNC_PAGE_DELAY_MS) },
                 )
                 val result = syncer.run()
+                lastSyncResult = result
                 if (result is CloudFavoriteSyncer.Result.Failed) Log.w(TAG, "Cloud favourites sync failed", result.error)
                 cloudCache.applySync(result, startedAt)
                 result

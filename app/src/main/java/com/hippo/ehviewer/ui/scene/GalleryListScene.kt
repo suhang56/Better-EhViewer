@@ -164,8 +164,11 @@ class GalleryListScene :
     @SuppressLint("NotifyDataSetChanged")
     private val mFavouriteStatusRouterListener: FavouriteStatusRouter.Listener =
         FavouriteStatusRouter.Listener { _: Long, _: Int ->
-            // When the list is projected, GalleryListFeatures notifies us and the rows are diffed instead.
-            if (mListController?.isActive != true) mAdapter?.notifyDataSetChanged()
+            // When favourites are hidden, GalleryListFeatures notifies us and the rows are diffed instead.
+            val controller = mListController
+            if (controller == null || !controller.isActive || !controller.options.hideFavorites) {
+                mAdapter?.notifyDataSetChanged()
+            }
         }
 
     /** Hides favourites / folds versions on top of the helper's raw data. */
