@@ -456,6 +456,20 @@ class UiEndToEndTest {
         r.check(page.containsAll(lookups.map { it.second }), "only galleries of this list were looked up")
         val top = page.maxByOrNull { stats.favoriteCountOf(it) ?: -1 }
         r.check(rows.firstOrNull() == top, "the most favourited gallery ($top, ${stats.favoriteCountOf(top ?: 0)}) is first")
+        Thread.sleep(1500)
+        r.check(AppUi.firstVisible() == 0, "after sorting the screen still shows the top of the list (first visible ${AppUi.firstVisible()})")
+
+        // Reopening the same search: every count is cached, so it is sorted at once and opens at the top.
+        val again = Logcat.mark()
+        AppUi.launch(url)
+        AppUi.waitForRows(r, 1)
+        r.check(
+            AppUi.waitUntil(10_000) { AppUi.rows().firstOrNull()?.gid == top },
+            "a revisited, already counted search is sorted at once (first row ${AppUi.rows().firstOrNull()?.gid})",
+        )
+        Thread.sleep(1500)
+        r.check(AppUi.firstVisible() == 0, "the revisited sorted list opens at its top (first visible ${AppUi.firstVisible()})")
+        r.check(Logcat.ratingLookupsSince(again).isEmpty(), "no detail page is fetched again for an already counted list")
 
         // Minimum number of favourites: the median of this page.
         val counts = favorites(page).filterNotNull().sorted()

@@ -186,6 +186,9 @@ class GalleryListScene :
     /** Expanded version groups; kept by the scene so they survive view recreation (opening a gallery, rotation). */
     private val mExpandedGids = HashSet<Long>()
 
+    /** Favourites sort order; kept by the scene like [mExpandedGids]. */
+    private val mSortState = ProjectedListController.SortState()
+
     private val mFavoriteDataListener = GalleryListFeatures.Listener {
         val controller = mListController ?: return@Listener
         if (controller.isActive && (controller.options.hideFavorites || controller.options.needsGalleryStats)) {
@@ -240,11 +243,15 @@ class GalleryListScene :
             return
         }
         val end = (last + RATING_COUNT_LOOKAHEAD).coerceAtMost(controller.size() - 1)
-        // Sorting needs every listed gallery: on-screen rows first, then the rest from the top.
+        val window = first..end
         val rows = if (controller.options.sortByFavorites) {
-            (first..end).toList() + (0 until controller.size()).filter { it !in first..end }
+            // Sorting needs every group (not its expanded versions): on-screen rows first, then the
+            // rest from the top. Versions on screen are looked up only when a count filter needs them.
+            val filtersNeedMembers = controller.options.minRatingCount > 0 || controller.options.minFavoriteCount > 0
+            window.filter { filtersNeedMembers || !controller.isMemberRow(it) } +
+                (0 until controller.size()).filter { it !in window && !controller.isMemberRow(it) }
         } else {
-            (first..end).toList()
+            window.toList()
         }
         val items = rows.mapNotNull { row ->
             helper.getDataAtEx(controller.dataIndex(row))?.let { it.gid to it.token }
@@ -542,7 +549,7 @@ class GalleryListScene :
         val paddingBottomFab = resources.getDimensionPixelOffset(R.dimen.gallery_padding_bottom_fab)
         mViewTransition = BringOutTransition(mContentLayout, mSearchLayout)
         mHelper = GalleryListHelper()
-        mListController = ProjectedListController({ mHelper?.data ?: emptyList() }, { mAdapter }, mExpandedGids)
+        mListController = ProjectedListController({ mHelper?.data ?: emptyList() }, { mAdapter }, mExpandedGids, mSortState)
         mContentLayout.setHelper(mHelper!!)
         mContentLayout.fastScroller.setOnDragHandlerListener(this)
         mContentLayout.setFitPaddingTop(paddingTopSB)
@@ -1706,8 +1713,6 @@ class GalleryListScene :
             if (type == TYPE_REFRESH || type == TYPE_SOMEWHERE) {
                 // A new list replaces this one: its galleries are no longer wanted.
                 GalleryListFeatures.clearGalleryStatsRequests()
-                mListController?.resetSort()
-                mSortProgressShown = false
             }
             if (type != TYPE_NEXT_PAGE_KEEP_POS) {
                 // Refresh, jump, previous page: user actions restore the auto-load budget.
@@ -1764,10 +1769,36 @@ class GalleryListScene :
             mInFlightTaskId = -1
         }
 
-        override fun dataToAdapterPosition(position: Int): Int = mListController?.adapterIndex(position) ?: position
+        override fun dataToAdapterPosition(position: Int): Int {
+            val controller = mListController ?: return position
+            if (controller.isActive && controller.options.sortByFavorites) {
+                // Sorted rows: "the start of the new data" is the top of the list, and a prepended page
+                // (sorted last until counted) must not drag the screen to the bottom.
+                when (mPendingTaskType) {
+                    TYPE_REFRESH, TYPE_SOMEWHERE, TYPE_PRE_PAGE -> return 0
+                    TYPE_PRE_PAGE_KEEP_POS ->
+                        return mRecyclerView?.layoutManager
+                            ?.let { LayoutManagerUtils.getFirstVisibleItemPosition(it) }?.coerceAtLeast(0) ?: 0
+                }
+            }
+            return controller.adapterIndex(position)
+        }
 
-        // Anchor queries (current page, quick-search progress) use where a group first appeared.
-        override fun adapterToDataPosition(position: Int): Int = mListController?.anchorIndex(position) ?: position
+        // Anchor queries (current page, quick-search progress) use where a group first appeared;
+        // with sorted rows, the earliest page position not scrolled past yet.
+        override fun adapterToDataPosition(position: Int): Int {
+            val controller = mListController ?: return position
+            if (controller.isActive && controller.options.sortByFavorites) return controller.earliestAnchorFrom(position)
+            return controller.anchorIndex(position)
+        }
+
+        override fun onClearData() {
+            super.onClearData()
+            // New data replaces the list (refresh, jump): forget the old sort order now, not when the
+            // request was sent, so a failed request keeps the old list sorted.
+            mListController?.resetSort()
+            mSortProgressShown = false
+        }
 
         override fun onBottomReached(dy: Int): Boolean {
             val controller = mListController ?: return true

@@ -35,7 +35,14 @@ internal class ProjectedListController(
     private val adapter: () -> RecyclerView.Adapter<*>?,
     /** Gids of expanded groups. Owned by the scene so it survives view recreation and is saved in its state. */
     private val expandedGids: MutableSet<Long> = HashSet(),
+    /** Favourites sort order. Owned by the scene so returning from a gallery keeps the order. */
+    private val sortState: SortState = SortState(),
 ) {
+    class SortState {
+        /** Favourite counts the current order is based on (see [SortSnapshotPolicy]). */
+        var snapshot: Map<Long, Int> = emptyMap()
+    }
+
     var options: GalleryListProjector.Options = GalleryListFeatures.options()
         private set
 
@@ -54,16 +61,12 @@ internal class ProjectedListController(
 
     private fun current(): GalleryListProjector.Projection = projection ?: compute().also { projection = it }
 
-    /**
-     * Favourite counts the current order is based on. Sorting is applied only when EVERY listed
-     * gallery has a known count, so rows do not jump each time one count arrives; galleries
-     * added later (next pages) stay at the end until they are all counted too.
-     */
-    private var sortSnapshot: Map<Long, Int> = emptyMap()
-
-    /** Listed galleries whose favourite count is still unknown while sorting (0 = sorted). */
+    /** Listed galleries whose favourite count is still awaited while sorting (0 = sorted). */
     var sortPending: Int = 0
         private set
+
+    /** The last compute() replaced the sort order: rows moved as a whole, not one by one. */
+    private var sortOrderChanged = false
 
     private fun compute(): GalleryListProjector.Projection {
         val raw = data()
@@ -83,22 +86,55 @@ internal class ProjectedListController(
             // Stale low counts count as unknown, so the gallery is shown and re-checked.
             ratingCountOf = { gid -> if (opts.minRatingCount > 0 && statsLoaded) stats.knownRatingCount(gid, opts.minRatingCount) else null },
             favoriteCountOf = { gid -> if (opts.minFavoriteCount > 0 && statsLoaded) stats.knownFavoriteCount(gid, opts.minFavoriteCount) else null },
-            sortKeyOf = { gid -> sortSnapshot[gid] },
+            sortKeyOf = { gid -> sortState.snapshot[gid] },
         )
+        sortOrderChanged = false
         if (!options.sortByFavorites) {
             sortPending = 0
             return project(options)
         }
+        // Only top-level rows count: a folded group sorts by its versions' best known count.
         val unsorted = project(options.copy(sortByFavorites = false))
-        val counts = unsorted.rows.map { row -> row.gid to (if (statsLoaded) stats.favoriteCountOf(row.gid) else null) }
-        sortPending = counts.count { it.second == null }
-        if (sortPending == 0) sortSnapshot = counts.associate { it.first to it.second!! }
+        val sortNeed = GalleryStatsCache.Need(sortByFavorites = true)
+        val heads = unsorted.rows.filter { it.role != GalleryListProjector.Role.MEMBER }.map { row ->
+            val count = if (statsLoaded) stats.favoriteCountOf(row.gid) else null
+            SortSnapshotPolicy.Head(
+                gid = row.gid,
+                count = count,
+                fresh = count != null && !stats.needsLookup(row.gid, sortNeed),
+                blocked = GalleryListFeatures.isLookupBlocked(row.gid),
+            )
+        }
+        val others = HashMap<Long, Int>()
+        if (statsLoaded) {
+            unsorted.groupMembers.values.flatten().forEach { gid -> stats.favoriteCountOf(gid)?.let { others[gid] = it } }
+        }
+        val decision = SortSnapshotPolicy.decide(heads, others, sortState.snapshot)
+        sortPending = decision.pending
+        decision.snapshot?.let {
+            sortState.snapshot = it
+            sortOrderChanged = true
+        }
         return project(options)
+    }
+
+    fun isMemberRow(adapterPosition: Int): Boolean = isActive && current().rows.getOrNull(adapterPosition)?.role == GalleryListProjector.Role.MEMBER
+
+    /**
+     * With rows sorted, the "position in the pages" of the screen is the earliest page position
+     * among the rows from [adapterPosition] on (what the user has not scrolled past yet), so
+     * quick-search progress never skips galleries that were sorted further down.
+     */
+    fun earliestAnchorFrom(adapterPosition: Int): Int {
+        if (!isActive) return adapterPosition
+        val rows = current().rows
+        if (adapterPosition !in rows.indices) return current().rowToAnchor(adapterPosition)
+        return (adapterPosition until rows.size).minOf { rows[it].anchorIndex }
     }
 
     /** A new list replaces the data: forget the previous list's sort order. */
     fun resetSort() {
-        sortSnapshot = emptyMap()
+        sortState.snapshot = emptyMap()
     }
 
     /** Re-reads the settings. Returns true if they changed (the caller should then [refreshAll]). */
@@ -107,7 +143,7 @@ internal class ProjectedListController(
         if (new == options) return false
         options = new
         expandedGids.clear()
-        sortSnapshot = emptyMap()
+        sortState.snapshot = emptyMap()
         projection = null
         return true
     }
@@ -164,6 +200,12 @@ internal class ProjectedListController(
         }
         val new = compute()
         projection = new
+        if (sortOrderChanged) {
+            // The whole list was re-sorted at once. Item moves would make RecyclerView follow the old
+            // top row to its new rank (often the bottom); a full rebind keeps the scroll position.
+            refreshAll()
+            return
+        }
         val adapter = adapter() ?: return
         DiffUtil.calculateDiff(
             object : DiffUtil.Callback() {

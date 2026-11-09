@@ -325,4 +325,51 @@ class GalleryStatsTest {
         assertFalse(GalleryListProjector.Options(false, false, null, minFavoriteCount = 1).isIdentity)
         assertFalse(GalleryListProjector.Options(false, false, null, sortByFavorites = true).isIdentity)
     }
+
+    // ------------------------------------------------------------------ sort snapshot policy
+
+    private fun head(gid: Long, count: Int?, fresh: Boolean = count != null, blocked: Boolean = false) = SortSnapshotPolicy.Head(gid, count, fresh, blocked)
+
+    @Test
+    fun sortWaitsForEveryRowThenSortsOnce() {
+        val waiting = SortSnapshotPolicy.decide(listOf(head(1, 50), head(2, null)), emptyMap(), emptyMap())
+        assertNull("one row still counting: keep the original order", waiting.snapshot)
+        assertEquals(1, waiting.pending)
+        val done = SortSnapshotPolicy.decide(listOf(head(1, 50), head(2, 7)), emptyMap(), emptyMap())
+        assertEquals(mapOf(1L to 50, 2L to 7), done.snapshot)
+        assertEquals(0, done.pending)
+    }
+
+    @Test
+    fun failedLookupsDoNotBlockSorting() {
+        val d = SortSnapshotPolicy.decide(listOf(head(1, 50), head(2, null, blocked = true)), emptyMap(), emptyMap())
+        assertEquals(mapOf(1L to 50), d.snapshot)
+        assertEquals(0, d.pending)
+    }
+
+    @Test
+    fun staleCountsSeedTheFirstOrderButDoNotReorderRowByRow() {
+        // Revisited after a month: old counts sort the list at once...
+        val first = SortSnapshotPolicy.decide(listOf(head(1, 50, fresh = false), head(2, 7, fresh = false)), emptyMap(), emptyMap())
+        assertEquals(mapOf(1L to 50, 2L to 7), first.snapshot)
+        // ...then a refreshed count alone does not reorder while the other one is still being refreshed.
+        val during = SortSnapshotPolicy.decide(listOf(head(1, 50, fresh = false), head(2, 900)), emptyMap(), first.snapshot!!)
+        assertNull(during.snapshot)
+        val after = SortSnapshotPolicy.decide(listOf(head(1, 60), head(2, 900)), emptyMap(), first.snapshot!!)
+        assertEquals(mapOf(1L to 60, 2L to 900), after.snapshot)
+    }
+
+    @Test
+    fun groupSortsByBestKnownVersionSoARepresentativeChangeDoesNotMoveIt() {
+        val list = listOf(
+            entry(5, "[Other] Less Popular"),
+            entry(55, "[作者] タイトル"),
+            entry(40, "[Artist] Title [Chinese]", titleJpn = "[作者] タイトル [中国翻訳]", lang = "ZH"),
+        )
+        // Only gid 55 was counted (900) before gid 40 (now the representative) arrived.
+        val keys = mapOf(5L to 100, 55L to 900)
+        val p = GalleryListProjector.project(list, sortOptions(fold = true), { FavoriteState.NOT_FAVORITED }, sortKeyOf = { keys[it] })
+        assertEquals(40L, p.rows[0].gid)
+        assertEquals(5L, p.rows[1].gid)
+    }
 }

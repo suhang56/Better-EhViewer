@@ -317,22 +317,39 @@ object GalleryListFeatures {
         synchronized(lookupLock) { wantedStats = emptyList() }
     }
 
-    /** Next gallery to look up; null means the worker stops (and is then marked as gone, under the lock). */
+    /** Wanted galleries are left but all failed recently: retry later without waiting for a scroll. */
+    private val RETRY_LATER: Pair<Long, String?> = -1L to null
+
+    /**
+     * Next gallery to look up, [RETRY_LATER], or null when nothing is wanted any more (the worker
+     * then stops and is marked as gone, under the lock).
+     */
     private fun nextLookup(now: Long): Pair<Long, String?>? = synchronized(lookupLock) {
         val need = statsNeed()
         failedLookups.entries.removeAll { now - it.value !in 0..LOOKUP_RETRY_MS }
-        val next = if (!need.any) {
-            null
-        } else {
-            wantedStats.firstOrNull { (gid, _) -> gid !in failedLookups && galleryStats.needsLookup(gid, need) }
-        }
+        val needed = if (need.any) wantedStats.filter { (gid, _) -> galleryStats.needsLookup(gid, need) } else emptyList()
+        val next = needed.firstOrNull { (gid, _) -> gid !in failedLookups } ?: if (needed.isNotEmpty()) RETRY_LATER else null
         if (next == null) lookupJob = null
         next
     }
 
+    /**
+     * True if no lookup of [gid] can happen soon: it failed recently, or lookups are paused
+     * (hourly cap, ban). Sorting then does not wait for it; it is placed last.
+     */
+    fun isLookupBlocked(gid: Long): Boolean {
+        if (synchronized(lookupLock) { gid in failedLookups }) return true
+        return synchronized(lookupThrottle) { lookupThrottle.delayBeforeNext() } > MAX_SINGLE_WAIT_MS
+    }
+
     private suspend fun runGalleryStatsLookups() {
         while (true) {
-            val (gid, token) = nextLookup(System.currentTimeMillis()) ?: return
+            val next = nextLookup(System.currentTimeMillis()) ?: return
+            if (next === RETRY_LATER) {
+                delay(MAX_SINGLE_WAIT_MS)
+                continue
+            }
+            val (gid, token) = next
             val wait = synchronized(lookupThrottle) { lookupThrottle.delayBeforeNext() }
             if (wait > 0) {
                 // Re-check what is wanted after (at most a minute of) waiting: the user may have scrolled or left.
@@ -346,11 +363,14 @@ object GalleryListFeatures {
             try {
                 val stats = EhEngine.getGalleryStats(gid, token)
                 if (stats != null) {
-                    synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
                     galleryStats.record(gid, stats.ratingCount, stats.favoriteCount)
                     notifyChanged()
+                }
+                if (stats != null && !galleryStats.needsLookup(gid, statsNeed())) {
+                    synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
                 } else {
-                    // Not a gallery page (removed gallery, unexpected page): slow down, skip this one.
+                    // Not a gallery page (removed gallery, unexpected page) or a count missing (markup
+                    // change?): slow down and skip this one for a while, never ask for it in a loop.
                     synchronized(lookupThrottle) { lookupThrottle.onFailure() }
                     synchronized(lookupLock) { failedLookups[gid] = System.currentTimeMillis() }
                 }

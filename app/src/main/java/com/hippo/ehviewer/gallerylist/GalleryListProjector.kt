@@ -214,7 +214,7 @@ object GalleryListProjector {
             }
         }
 
-        if (options.sortByFavorites) sortBlocks(rows, sortKeyOf)
+        if (options.sortByFavorites) sortBlocks(rows, groupMembers, sortKeyOf)
 
         // Raw index -> row: a raw item maps to the row representing it, otherwise to the next shown row.
         val map = IntArray(entries.size) { -1 }
@@ -237,9 +237,11 @@ object GalleryListProjector {
 
     /**
      * Sorts top-level rows (with the expanded versions that follow them) by [sortKeyOf] descending.
-     * Rows without a key keep their original order after all known ones. Stable.
+     * A folded group uses the highest key among its versions, so a change of representative never
+     * moves an already sorted group. Rows without a key keep their original order after all known
+     * ones. Stable.
      */
-    private fun sortBlocks(rows: MutableList<Row>, sortKeyOf: (Long) -> Int?) {
+    private fun sortBlocks(rows: MutableList<Row>, groupMembers: Map<Long, List<Long>>, sortKeyOf: (Long) -> Int?) {
         val blocks = ArrayList<List<Row>>()
         var current = ArrayList<Row>()
         rows.forEach { row ->
@@ -250,7 +252,11 @@ object GalleryListProjector {
             current += row
         }
         if (current.isNotEmpty()) blocks += current
-        val keyed = blocks.map { it to sortKeyOf(it[0].gid) }
+        val keyed = blocks.map { block ->
+            val head = block[0]
+            val gids = groupMembers[head.groupKey] ?: listOf(head.gid)
+            block to (gids + head.gid).mapNotNull(sortKeyOf).maxOrNull()
+        }
         val sorted = keyed.filter { it.second != null }.sortedByDescending { it.second!! } + keyed.filter { it.second == null }
         rows.clear()
         sorted.forEach { rows += it.first }
@@ -270,5 +276,33 @@ object GalleryListProjector {
         for (i in map.indices.reversed()) {
             if (map[i] == -1) map[i] = next else next = map[i]
         }
+    }
+}
+
+/**
+ * When to (re)build the favourites sort order, so that rows never jump while counts arrive:
+ * - the first order may use any known count, even an old one (a revisited list is sorted at once);
+ * - after that the order is replaced only when no listed group still waits for a (fresh) count;
+ * - galleries whose lookup cannot happen now (failed, throttled) do not hold the order back:
+ *   they are sorted last until their count is known.
+ */
+object SortSnapshotPolicy {
+    /**
+     * @param gid displayed gallery of a top-level row (representative or single)
+     * @param count its known favourite count, or null
+     * @param fresh the count is known and recent enough
+     * @param blocked no lookup is possible for it right now
+     */
+    data class Head(val gid: Long, val count: Int?, val fresh: Boolean, val blocked: Boolean)
+
+    /** @param snapshot the new order (null = keep the current one); [pending] = rows still to count */
+    data class Decision(val snapshot: Map<Long, Int>?, val pending: Int)
+
+    fun decide(heads: List<Head>, otherKnownCounts: Map<Long, Int>, current: Map<Long, Int>): Decision {
+        val pending = heads.count { !it.fresh && !it.blocked }
+        val counts = HashMap(otherKnownCounts)
+        heads.forEach { h -> h.count?.let { counts[h.gid] = it } }
+        val ready = pending == 0 || (current.isEmpty() && heads.all { it.count != null || it.blocked })
+        return Decision(if (ready && counts != current) counts else null, pending)
     }
 }
