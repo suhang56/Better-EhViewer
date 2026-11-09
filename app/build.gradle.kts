@@ -68,6 +68,8 @@ android {
         versionName = "1.8.14"
         buildConfigField("String", "VERSION_CODE", "\"${defaultConfig.versionCode}\"")
         buildConfigField("String", "COMMIT_SHA", "\"$commitSha\"")
+        // On-device verification suite (app/src/androidTest), run by .github/workflows/verify.yml.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             if (isRelease) {
                 abiFilters.addAll(supportedAbis)
@@ -186,6 +188,12 @@ dependencies {
     coreLibraryDesugaring(libs.desugar)
 
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }
 
 kotlin {

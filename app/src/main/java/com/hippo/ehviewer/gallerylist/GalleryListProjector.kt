@@ -46,6 +46,7 @@ object GalleryListProjector {
     }
 
     data class Row(
+        /** Raw index of the gallery this row DISPLAYS (and opens). */
         val rawIndex: Int,
         val gid: Long,
         val role: Role,
@@ -55,6 +56,11 @@ object GalleryListProjector {
         val groupSize: Int,
         val expanded: Boolean,
         val favoriteState: FavoriteState?,
+        /**
+         * Raw index used as this row's position in the paged data: where the group first
+         * appeared. Used for "which page am I on" / quick-search progress, never for display.
+         */
+        val anchorIndex: Int = rawIndex,
     ) {
         /** Identity used for DiffUtil. A group row keeps its identity when its representative changes. */
         val stableId: String get() = if (role == Role.MEMBER) "m$gid" else "g$groupKey"
@@ -72,7 +78,12 @@ object GalleryListProjector {
         val groupMembers: Map<Long, List<Long>> = emptyMap(),
     ) {
         val size: Int get() = rows.size
+
+        /** Raw index of the gallery displayed at [row], -1 if out of range. */
         fun rowToRaw(row: Int): Int = rows.getOrNull(row)?.rawIndex ?: -1
+
+        /** Raw index anchoring [row] in the paged data (first appearance of its group), -1 if out of range. */
+        fun rowToAnchor(row: Int): Int = rows.getOrNull(row)?.anchorIndex ?: -1
         fun rawToRow(raw: Int): Int = when {
             rows.isEmpty() -> 0
             raw < 0 -> 0
@@ -161,11 +172,12 @@ object GalleryListProjector {
                 groupMembers[groupKey] = members.map { it.gid }
                 val expanded = members.any { it.gid in expandedGids }
                 val rep = sorted[0]
-                // The group is shown where its first member appeared, so rows never jump around.
-                rows += Row(i, rep.gid, Role.REPRESENTATIVE, groupKey, members.size, expanded, states[rep.gid])
+                // The group is shown where its first member appeared (anchor i), so rows never jump
+                // around, but the row displays and opens the chosen representative.
+                rows += Row(indexOfGid[rep.gid]!!, rep.gid, Role.REPRESENTATIVE, groupKey, members.size, expanded, states[rep.gid], anchorIndex = i)
                 if (expanded) {
                     sorted.drop(1).forEach { m ->
-                        rows += Row(indexOfGid[m.gid]!!, m.gid, Role.MEMBER, groupKey, members.size, true, states[m.gid])
+                        rows += Row(indexOfGid[m.gid]!!, m.gid, Role.MEMBER, groupKey, members.size, true, states[m.gid], anchorIndex = i)
                     }
                 } else {
                     foldedAway += members.size - 1
@@ -175,9 +187,7 @@ object GalleryListProjector {
 
         // Raw index -> row: a raw item maps to the row representing it, otherwise to the next shown row.
         val map = IntArray(entries.size) { -1 }
-        rows.forEachIndexed { r, row ->
-            if (map[row.rawIndex] == -1 || row.role != Role.MEMBER) map[row.rawIndex] = r
-        }
+        rows.forEachIndexed { r, row -> map[row.rawIndex] = r }
         val finalGrouper = grouper
         if (finalGrouper != null) {
             // Collapsed members map to their group row.

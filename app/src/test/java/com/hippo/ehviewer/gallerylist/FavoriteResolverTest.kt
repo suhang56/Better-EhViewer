@@ -29,14 +29,17 @@ class FavoriteResolverTest {
         inline: Map<Long, InlineObservation> = emptyMap(),
         state: CloudSyncState = CloudSyncState(),
         signedIn: Boolean = true,
+        cacheUpdatedAt: Long = 0,
+        sessionVerified: Boolean = false,
     ) = FavoriteResolver(
         isLocalFavorite = { it in local },
-        cloudCacheSlot = { cache[it] },
+        cloudCacheEntry = { gid -> cache[gid]?.let { CloudFavoriteCache.Entry(gid, it, cacheUpdatedAt) } },
         inlineObservation = { inline[it] },
         syncState = state,
         signedIn = signedIn,
         cloudCacheEmpty = cache.isEmpty(),
         now = now,
+        sessionVerified = sessionVerified,
     )
 
     private fun obs(slot: Int, proven: Boolean = true) = InlineObservation(slot, proven, now)
@@ -62,6 +65,31 @@ class FavoriteResolverTest {
         assertEquals(FavoriteState.UNKNOWN, r.resolve(1))
         val proven = resolver(cache = mapOf(1L to 0), inline = mapOf(1L to obs(InlineObservation.SLOT_NONE, proven = true)))
         assertEquals(FavoriteState.NOT_FAVORITED, proven.resolve(1))
+    }
+
+    @Test
+    fun unprovenNoMarkerIsUnknownUnlessSessionVerified() {
+        // Cookies present but the session may be silently logged out: a page without markers proves nothing.
+        val unproven = mapOf(5L to obs(InlineObservation.SLOT_NONE, proven = false))
+        assertEquals(FavoriteState.UNKNOWN, resolver(inline = unproven).resolve(5))
+        // A favourites page loaded in this session proves the cookies work.
+        assertEquals(FavoriteState.NOT_FAVORITED, resolver(inline = unproven, sessionVerified = true).resolve(5))
+    }
+
+    @Test
+    fun newerCacheEntryBeatsOlderNoMarkerObservation() {
+        val old = mapOf(5L to InlineObservation(InlineObservation.SLOT_NONE, true, now - 1000))
+        // Favourited elsewhere, then found by a sync after the list page was seen.
+        assertEquals(FavoriteState.CLOUD, resolver(cache = mapOf(5L to 2), inline = old, cacheUpdatedAt = now - 10).resolve(5))
+        // The page is newer than the cache entry: it was removed on the website.
+        assertEquals(FavoriteState.NOT_FAVORITED, resolver(cache = mapOf(5L to 2), inline = old, cacheUpdatedAt = now - 5000).resolve(5))
+    }
+
+    @Test
+    fun partialSyncIsNotRetriedBeforeTtl() {
+        val partial = CloudSyncState(lastAttemptAt = now - CloudSyncState.DEFAULT_RETRY - 1, lastPartial = "page_limit:100")
+        assertEquals(false, partial.shouldAutoSync(now))
+        assertEquals(true, partial.copy(lastAttemptAt = now - CloudSyncState.DEFAULT_TTL - 1).shouldAutoSync(now))
     }
 
     @Test

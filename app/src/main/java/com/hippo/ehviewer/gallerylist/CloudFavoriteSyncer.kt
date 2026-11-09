@@ -42,7 +42,11 @@ class CloudFavoriteSyncer(
         /** Every favourite has been seen: absence from [entries] means "not favourited". */
         class Complete(override val entries: Map<Long, Int>) : Result()
 
-        /** Stopped early (page cap or missing items): [entries] are favourited, nothing else is known. */
+        /**
+         * Stopped early (page cap or missing items): [entries] are favourited, nothing else is known.
+         *
+         * @param reason machine readable code, see [PARTIAL_PAGE_LIMIT], [PARTIAL_MISSING], [PARTIAL_STUCK]
+         */
         class Partial(override val entries: Map<Long, Int>, val reason: String) : Result()
 
         /** Request failed: [entries] seen before the failure are still valid favourites. */
@@ -56,7 +60,7 @@ class CloudFavoriteSyncer(
         var pages = 0
         val visitedCursors = HashSet<String>()
         while (true) {
-            if (pages >= maxPages) return Result.Partial(seen, "page limit $maxPages reached")
+            if (pages >= maxPages) return Result.Partial(seen, "$PARTIAL_PAGE_LIMIT:$maxPages")
             if (pages > 0) delayBetweenPages()
             val page = try {
                 fetchPage(cursor)
@@ -72,18 +76,27 @@ class CloudFavoriteSyncer(
             if (next.isNullOrEmpty()) break
             // Protect against a server returning the same cursor forever.
             if (!visitedCursors.add(next) || page.entries.isEmpty()) {
-                return Result.Partial(seen, "pagination did not advance")
+                return Result.Partial(seen, PARTIAL_STUCK)
             }
             cursor = next
         }
         val expected = total
         if (expected != null && seen.size < expected) {
-            return Result.Partial(seen, "saw ${seen.size} of $expected favourites")
+            return Result.Partial(seen, "$PARTIAL_MISSING:${seen.size}:$expected")
         }
         return Result.Complete(seen)
     }
 
     companion object {
         const val DEFAULT_MAX_PAGES = 100
+
+        /** `page_limit:<pages>` */
+        const val PARTIAL_PAGE_LIMIT = "page_limit"
+
+        /** `missing:<seen>:<expected>` */
+        const val PARTIAL_MISSING = "missing"
+
+        /** Pagination returned the same cursor or an empty page. */
+        const val PARTIAL_STUCK = "stuck"
     }
 }

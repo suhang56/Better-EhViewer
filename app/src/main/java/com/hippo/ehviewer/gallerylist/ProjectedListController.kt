@@ -33,6 +33,8 @@ import com.hippo.ehviewer.ui.scene.GalleryAdapter
 internal class ProjectedListController(
     private val data: () -> List<GalleryInfo?>,
     private val adapter: () -> RecyclerView.Adapter<*>?,
+    /** Gids of expanded groups. Owned by the scene so it survives view recreation and is saved in its state. */
+    private val expandedGids: MutableSet<Long> = HashSet(),
 ) {
     var options: GalleryListProjector.Options = GalleryListFeatures.options()
         private set
@@ -41,7 +43,6 @@ internal class ProjectedListController(
 
     val autoLoadPolicy = AutoLoadPolicy()
 
-    private val expandedGids = HashSet<Long>()
     private var projection: GalleryListProjector.Projection? = null
 
     val visibleCount: Int get() = if (isActive) current().size else data().size
@@ -79,7 +80,11 @@ internal class ProjectedListController(
 
     fun size(): Int = visibleCount
 
+    /** Raw data index of the gallery DISPLAYED at [adapterPosition] (what is bound, opened, long-pressed). */
     fun dataIndex(adapterPosition: Int): Int = if (isActive) current().rowToRaw(adapterPosition) else adapterPosition
+
+    /** Raw data index anchoring [adapterPosition] in the pages (where its group first appeared). */
+    fun anchorIndex(adapterPosition: Int): Int = if (isActive) current().rowToAnchor(adapterPosition) else adapterPosition
 
     fun adapterIndex(dataPosition: Int): Int = if (isActive) current().rawToRow(dataPosition) else dataPosition
 
@@ -132,7 +137,8 @@ internal class ProjectedListController(
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
                     val a = old.rows[oldItemPosition]
                     val b = new.rows[newItemPosition]
-                    return a.gid == b.gid && a.role == b.role && a.groupSize == b.groupSize && a.expanded == b.expanded && a.favoriteState == b.favoriteState
+                    return a.gid == b.gid && a.rawIndex == b.rawIndex && a.role == b.role && a.groupSize == b.groupSize &&
+                        a.expanded == b.expanded && a.favoriteState == b.favoriteState
                 }
             },
             false,

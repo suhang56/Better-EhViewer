@@ -87,6 +87,7 @@ class VersionGrouper(
         val artistTags: Set<String>,
         val groupTags: Set<String>,
         val parodyTags: Set<String>,
+        val events: Set<String>,
         val chainRoot: Long?,
     )
 
@@ -102,13 +103,15 @@ class VersionGrouper(
         val groupTags = tagValues("group")
         val parodyTags = tagValues("parody") - "original"
         val keys = LinkedHashSet<String>()
+        val events = LinkedHashSet<String>()
         listOf(entry.title, entry.titleJpn).forEach { title ->
             val parsed = TitleParser.parse(title)
+            events += parsed.events
             if (!parsed.isUsable) return@forEach
             val creators = parsed.creators + artistTags + groupTags
             creators.forEach { creator -> keys += "$creator\u0000${parsed.core}" }
         }
-        return Profile(entry, keys, artistTags, groupTags, parodyTags, chainRootOf(entry.gid))
+        return Profile(entry, keys, artistTags, groupTags, parodyTags, events, chainRootOf(entry.gid))
     }
 
     private fun isCompatible(a: Profile, b: Profile): Boolean {
@@ -122,6 +125,8 @@ class VersionGrouper(
         val creatorsB = b.artistTags + b.groupTags
         if (creatorsA.isNotEmpty() && creatorsB.isNotEmpty() && creatorsA.intersect(creatorsB).isEmpty()) return false
         if (a.parodyTags.isNotEmpty() && b.parodyTags.isNotEmpty() && a.parodyTags.intersect(b.parodyTags).isEmpty()) return false
+        // Books released at different events ("(C95)" vs "(C96)") are different works, even with the same title.
+        if (a.events.isNotEmpty() && b.events.isNotEmpty() && a.events.intersect(b.events).isEmpty()) return false
         // Very different page counts usually mean a different work (chapter vs. complete edition).
         if (ea.pages > 0 && eb.pages > 0) {
             val hi = max(ea.pages, eb.pages)

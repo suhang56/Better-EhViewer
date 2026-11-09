@@ -70,6 +70,17 @@ class CloudFavoriteCache(
     @Synchronized
     fun slotOf(gid: Long): Int? = entries()[gid]?.slot
 
+    @Synchronized
+    fun entryOf(gid: Long): Entry? = entries()[gid]
+
+    /**
+     * Incremented by [clear] (sign-out). A sync started in an older generation belongs to
+     * another session/account and its result is dropped.
+     */
+    @get:Synchronized
+    var generation: Int = 0
+        private set
+
     @get:Synchronized
     val isEmpty: Boolean get() = entries().isEmpty()
 
@@ -146,9 +157,11 @@ class CloudFavoriteCache(
      * Applies a sync result. Only a [CloudFavoriteSyncer.Result.Complete] result may
      * delete entries; entries changed after [startedAt] (user actions during the
      * sync) are always preserved. A failure never makes anything "not favourited".
+     * A result from an older [generation] (the user signed out meanwhile) is ignored.
      */
     @Synchronized
-    fun applySync(result: CloudFavoriteSyncer.Result, startedAt: Long) {
+    fun applySync(result: CloudFavoriteSyncer.Result, startedAt: Long, generation: Int = this.generation) {
+        if (generation != this.generation) return
         val map = entries()
         val now = clock()
         when (result) {
@@ -163,26 +176,49 @@ class CloudFavoriteCache(
                 map.clear()
                 map.putAll(newMap)
                 persistence.replaceAll(newMap.values)
-                syncState = CloudSyncState(lastFullSyncAt = now, lastAttemptAt = now, lastError = null)
+                syncState = CloudSyncState(lastFullSyncAt = now, lastAttemptAt = now, lastError = null, lastPartial = null)
             }
             is CloudFavoriteSyncer.Result.Partial -> {
-                markFavorited(result.entries)
-                syncState = syncState.copy(lastAttemptAt = now, lastError = result.reason)
+                mergeSeen(result.entries, startedAt)
+                syncState = syncState.copy(lastAttemptAt = now, lastError = null, lastPartial = result.reason)
             }
             is CloudFavoriteSyncer.Result.Failed -> {
-                markFavorited(result.entries)
+                mergeSeen(result.entries, startedAt)
                 syncState = syncState.copy(
                     lastAttemptAt = now,
                     lastError = result.error.message ?: result.error.javaClass.simpleName,
+                    lastPartial = null,
                 )
             }
         }
         persistence.saveSyncState(syncState)
     }
 
+    /**
+     * Adds galleries seen on favourites pages during a sync that did not complete. Changes
+     * made after [startedAt] win: a gallery removed meanwhile (in the app, or proven by a
+     * list page) is not brought back, and a newer cache entry is not overwritten.
+     */
+    private fun mergeSeen(seen: Map<Long, Int>, startedAt: Long) {
+        val map = entries()
+        val now = clock()
+        val list = ArrayList<Entry>()
+        seen.forEach { (gid, slot) ->
+            val obs = inline[gid]
+            if (obs != null && !obs.favorited && obs.loginProven && obs.observedAt >= startedAt) return@forEach
+            val existing = map[gid]
+            if (existing != null && existing.updatedAt >= startedAt) return@forEach
+            list += Entry(gid, slot, now)
+            if (obs != null && obs.observedAt < startedAt) inline.remove(gid)
+        }
+        list.forEach { map[it.gid] = it }
+        if (list.isNotEmpty()) persistence.upsert(list)
+    }
+
     /** Forget everything, e.g. after signing out. */
     @Synchronized
     fun clear() {
+        generation++
         entries().clear()
         inline.clear()
         persistence.replaceAll(emptyList())

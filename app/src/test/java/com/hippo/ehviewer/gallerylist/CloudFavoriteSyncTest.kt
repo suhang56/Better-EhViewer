@@ -98,10 +98,11 @@ class CloudFavoriteSyncTest {
         assertEquals(setOf(1L, 5L), persistence.rows.keys)
         assertEquals(0L, cache.syncState.lastFullSyncAt)
         assertEquals("network down", cache.syncState.lastError)
+        assertNull(cache.syncState.lastPartial)
 
         val resolver = FavoriteResolver(
             isLocalFavorite = { false },
-            cloudCacheSlot = cache::slotOf,
+            cloudCacheEntry = cache::entryOf,
             inlineObservation = cache::inlineObservation,
             syncState = cache.syncState,
             signedIn = false,
@@ -149,9 +150,12 @@ class CloudFavoriteSyncTest {
         val persistence = MemoryPersistence()
         persistence.rows[1] = CloudFavoriteCache.Entry(1, 0, 0)
         val cache = CloudFavoriteCache(persistence, clock = { 100L })
-        cache.applySync(CloudFavoriteSyncer.Result.Partial(mapOf(2L to 0), "cap"), cache.markSyncStarted())
+        cache.applySync(CloudFavoriteSyncer.Result.Partial(mapOf(2L to 0), "page_limit:100"), cache.markSyncStarted())
         assertEquals(setOf(1L, 2L), persistence.rows.keys)
         assertFalse(cache.syncState.isFresh(100L))
+        // Partial is not a failure.
+        assertNull(cache.syncState.lastError)
+        assertEquals("page_limit:100", cache.syncState.lastPartial)
     }
 
     @Test
@@ -166,6 +170,42 @@ class CloudFavoriteSyncTest {
         time = 200
         cache.applySync(CloudFavoriteSyncer.Result.Complete(mapOf(8L to 0, 9L to 0)), started)
         assertEquals(setOf(7L, 9L), persistence.rows.keys)
+    }
+
+    @Test
+    fun partialOrFailedSyncDoesNotResurrectRemovals() {
+        for (result in listOf<(Map<Long, Int>) -> CloudFavoriteSyncer.Result>(
+            { CloudFavoriteSyncer.Result.Partial(it, CloudFavoriteSyncer.PARTIAL_PAGE_LIMIT + ":100") },
+            { CloudFavoriteSyncer.Result.Failed(it, IOException("x")) },
+        )) {
+            val persistence = MemoryPersistence()
+            var time = 100L
+            val cache = CloudFavoriteCache(persistence, clock = { time })
+            cache.markFavorited(mapOf(8L to 0))
+            val started = cache.markSyncStarted()
+            time = 150
+            cache.markRemoved(listOf(8L)) // removed by the user while the sync was running
+            time = 200
+            // The sync had fetched gid 8 before the removal.
+            cache.applySync(result(mapOf(8L to 0, 9L to 1)), started)
+            assertEquals(setOf(9L), persistence.rows.keys)
+            val resolver = FavoriteResolver({ false }, cache::entryOf, cache::inlineObservation, cache.syncState, true, cache.isEmpty, 300L)
+            assertEquals(FavoriteState.NOT_FAVORITED, resolver.resolve(8))
+            assertEquals(FavoriteState.CLOUD, resolver.resolve(9))
+        }
+    }
+
+    @Test
+    fun syncFromBeforeSignOutIsDropped() {
+        val persistence = MemoryPersistence()
+        val cache = CloudFavoriteCache(persistence, clock = { 100L })
+        val generation = cache.generation
+        val started = cache.markSyncStarted()
+        cache.clear() // user signed out while the sync was running
+        cache.applySync(CloudFavoriteSyncer.Result.Complete(mapOf(1L to 0, 2L to 0)), started, generation)
+        cache.applySync(CloudFavoriteSyncer.Result.Failed(mapOf(1L to 0), IOException("logged out")), started, generation)
+        assertTrue(persistence.rows.isEmpty())
+        assertEquals(0L, cache.syncState.lastFullSyncAt)
     }
 
     @Test

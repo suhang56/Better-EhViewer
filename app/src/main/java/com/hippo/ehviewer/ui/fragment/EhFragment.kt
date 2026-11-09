@@ -1,6 +1,9 @@
 /*
  * Copyright 2016 Hippo Seven
  *
+ * Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+ * fold gallery versions); see NOTICE.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -69,7 +72,6 @@ class EhFragment : BasePreferenceFragment() {
         listThumbSize.onPreferenceChangeListener = this
         thumbSize.onPreferenceChangeListener = this
         thumbShowTitle.onPreferenceChangeListener = this
-        findPreference<Preference>(Settings.KEY_HIDE_FAVORITED_GALLERIES)!!.onPreferenceChangeListener = this
         cloudFavoritesSync = findPreference(Settings.KEY_CLOUD_FAVORITES_SYNC)
         cloudFavoritesSync?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
             syncCloudFavorites()
@@ -125,11 +127,6 @@ class EhFragment : BasePreferenceFragment() {
             requireActivity().setResult(Activity.RESULT_OK)
         } else if (Settings.KEY_THUMB_SHOW_TITLE == key) {
             requireActivity().setResult(Activity.RESULT_OK)
-        } else if (Settings.KEY_HIDE_FAVORITED_GALLERIES == key) {
-            if (java.lang.Boolean.TRUE == newValue) {
-                // Settings are written after this callback returns.
-                view?.post { GalleryListFeatures.maybeAutoSync() }
-            }
         } else if (Settings.KEY_SHOW_TAG_TRANSLATIONS == key) {
             if (java.lang.Boolean.TRUE == newValue) {
                 lifecycleScope.launchNonCancellable { EhTagDatabase.update(true) }
@@ -142,6 +139,33 @@ class EhFragment : BasePreferenceFragment() {
     override val fragmentTitle: Int
         get() = R.string.settings_eh
 
+    private val favoriteDataListener = GalleryListFeatures.Listener { if (isAdded) updateCloudFavoritesSummary() }
+
+    override fun onStart() {
+        super.onStart()
+        // A background sync (started from a gallery list) updates the summary while this screen is open.
+        GalleryListFeatures.addListener(favoriteDataListener)
+        updateCloudFavoritesSummary()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        GalleryListFeatures.removeListener(favoriteDataListener)
+    }
+
+    private fun partialReason(code: String): String {
+        val parts = code.split(':')
+        return when (parts[0]) {
+            CloudFavoriteSyncer.PARTIAL_PAGE_LIMIT -> getString(R.string.cloud_fav_partial_page_limit, parts.getOrNull(1)?.toIntOrNull() ?: 0)
+            CloudFavoriteSyncer.PARTIAL_MISSING -> getString(
+                R.string.cloud_fav_partial_missing,
+                parts.getOrNull(1)?.toIntOrNull() ?: 0,
+                parts.getOrNull(2)?.toIntOrNull() ?: 0,
+            )
+            else -> getString(R.string.cloud_fav_partial_stuck)
+        }
+    }
+
     private fun updateCloudFavoritesSummary() {
         val pref = cloudFavoritesSync ?: return
         if (GalleryListFeatures.isSyncing) {
@@ -151,8 +175,10 @@ class EhFragment : BasePreferenceFragment() {
         val cache = GalleryListFeatures.cloudCache
         val state = runCatching { cache.ensureLoaded() }.map { cache.syncState }.getOrNull() ?: return
         val count = cache.size
+        val partial = state.lastPartial
         pref.summary = when {
             state.lastError != null -> getString(R.string.settings_eh_cloud_favorites_sync_failed, state.lastError, count)
+            partial != null -> getString(R.string.settings_eh_cloud_favorites_sync_partial_status, partialReason(partial), count)
             state.lastFullSyncAt > 0 -> getString(
                 R.string.settings_eh_cloud_favorites_sync_status,
                 DateUtils.getRelativeTimeSpanString(state.lastFullSyncAt),
@@ -163,7 +189,7 @@ class EhFragment : BasePreferenceFragment() {
     }
 
     private fun syncCloudFavorites() {
-        if (GalleryListFeatures.isSyncing) return
+        // If a background sync is running, sync() joins it (single flight) and reports its result.
         cloudFavoritesSync?.summary = getString(R.string.settings_eh_cloud_favorites_syncing)
         val appContext = requireContext().applicationContext
         lifecycleScope.launch {

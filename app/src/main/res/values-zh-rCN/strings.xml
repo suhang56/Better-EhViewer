@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?><!--
   ~ Copyright 2016 Hippo Seven
   ~
+  ~ Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+  ~ fold gallery versions); see NOTICE.
+  ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
   ~ You may obtain a copy of the License at
@@ -653,11 +656,30 @@
     <string name="fold_language_auto">跟随应用语言</string>
     <string name="fold_language_none">无偏好（质量优先）</string>
     <string name="fold_language_original">日语 / 原版</string>
-    <string name="gallery_list_expand_versions">展开其他 %d 个版本</string>
-    <string name="gallery_list_collapse_versions">收起其他 %d 个版本</string>
-    <string name="gallery_list_other_version">上方作品的其他版本</string>
+    <string name="gallery_list_other_version">同一作品的其他版本</string>
     <string name="gallery_list_favorite_unknown">收藏状态未知</string>
-    <string name="gallery_list_favorite_state_unknown">%d 个画廊的云端收藏状态未知，已保留显示。可在设置中同步云端收藏。</string>
-    <string name="gallery_list_all_hidden">已加载的 %d 个结果均已隐藏或折叠</string>
-    <string name="gallery_list_all_hidden_load_more">已加载的 %d 个结果均已隐藏或折叠，点按加载更多</string>
+    <string name="gallery_list_collapse_versions_short">收起</string>
+    <string name="settings_eh_cloud_favorites_sync_partial_status">上次同步不完整：%1$s。已缓存 %2$d 个画廊。点按重新同步</string>
+    <string name="cloud_fav_partial_page_limit">已达到 %d 页上限</string>
+    <string name="cloud_fav_partial_missing">只看到 %2$d 个中的 %1$d 个</string>
+    <string name="cloud_fav_partial_stuck">收藏页无法继续翻页</string>
+    <plurals name="gallery_list_expand_versions">
+        <item quantity="other">展开其他 %d 个版本</item>
+    </plurals>
+    <plurals name="gallery_list_collapse_versions">
+        <item quantity="other">收起其他 %d 个版本</item>
+    </plurals>
+    <plurals name="gallery_list_versions_badge">
+        <item quantity="other">+%d 个版本</item>
+    </plurals>
+    <plurals name="gallery_list_favorite_state_unknown">
+        <item quantity="other">%d 个画廊的云端收藏状态未知，已保留显示。可在设置中同步云端收藏。</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden">
+        <item quantity="other">已加载的 %d 个结果均已隐藏或折叠</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden_load_more">
+        <item quantity="other">已加载的 %d 个结果均已隐藏或折叠，点按加载更多</item>
+    </plurals>
+    <string name="gallery_list_swipe_up_load_more">上滑加载更多结果</string>
 </resources>

@@ -77,10 +77,34 @@ object VersionQuality {
         "digital" to 15,
     )
 
-    /** Language of a gallery, as a simple language code ([LANG_ORIGINAL] for Japanese/untagged). */
+    /** language: tags that do not name a language. */
+    private val NON_LANGUAGE_TAGS = setOf("translated", "rewrite", "speechless", "text cleaned")
+
+    /** Languages E-Hentai tags but GalleryInfo.simpleLanguage does not know, as they appear in titles. */
+    private val OTHER_LANGUAGE_WORDS = listOf(
+        "indonesian", "arabic", "turkish", "ukrainian", "czech", "tagalog", "filipino", "malay", "swedish",
+        "norwegian", "danish", "finnish", "greek", "hebrew", "romanian", "bulgarian", "serbian", "croatian",
+        "slovak", "persian", "hindi", "catalan", "mongolian",
+    )
+
+    /**
+     * Language of a gallery as a simple language code (EN, ZH...), [LANG_ORIGINAL] only for
+     * Japanese / untranslated galleries, or `X-<NAME>` for other languages, so that a
+     * translation in an unlisted language is never mistaken for the Japanese original.
+     */
     fun languageOf(entry: GalleryEntry): String {
-        entry.tags?.forEach { tag -> TAG_LANGUAGE[tag.lowercase(Locale.ROOT)]?.let { return it } }
-        return entry.simpleLanguage?.uppercase(Locale.ROOT) ?: LANG_ORIGINAL
+        val languageTags = entry.tags.orEmpty().map { it.lowercase(Locale.ROOT) }
+            .filter { it.startsWith("language:") }
+        languageTags.forEach { tag -> TAG_LANGUAGE[tag]?.let { if (it != LANG_ORIGINAL) return it } }
+        languageTags.map { it.substringAfter(':') }.firstOrNull { it !in NON_LANGUAGE_TAGS && it != "japanese" }
+            ?.let { return "X-" + it.uppercase(Locale.ROOT) }
+        if ("language:japanese" in languageTags) return LANG_ORIGINAL
+        entry.simpleLanguage?.let { return it.uppercase(Locale.ROOT) }
+        val decorations = (TitleParser.parse(entry.title).decorations + TitleParser.parse(entry.titleJpn).decorations)
+        OTHER_LANGUAGE_WORDS.firstOrNull { word -> decorations.any { it.contains(word) } }
+            ?.let { return "X-" + it.uppercase(Locale.ROOT) }
+        if ("language:translated" in languageTags) return "X-UNKNOWN"
+        return LANG_ORIGINAL
     }
 
     /**

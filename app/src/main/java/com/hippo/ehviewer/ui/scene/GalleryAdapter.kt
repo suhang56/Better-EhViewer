@@ -1,6 +1,9 @@
 /*
  * Copyright 2016 Hippo Seven
  *
+ * Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+ * fold gallery versions); see NOTICE.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -159,6 +162,10 @@ internal abstract class GalleryAdapter(
                 holder.pages.setTextSize(COMPLEX_UNIT_PX, textSize.toFloat())
                 holder.title.setTextSize(COMPLEX_UNIT_PX, textSize.toFloat())
                 holder.title.maxLines = 2
+                holder.versions?.let {
+                    it.setTextSize(COMPLEX_UNIT_PX, textSize.toFloat())
+                    it.maxWidth = columnWidth * 3 / 4
+                }
             }
         }
         holder.card.setOnClickListener {
@@ -222,10 +229,14 @@ internal abstract class GalleryAdapter(
                 versions.visibility = View.VISIBLE
                 versions.isClickable = true
                 versions.alpha = 1f
-                versions.text = mResources.getString(
-                    if (state.expanded) R.string.gallery_list_collapse_versions else R.string.gallery_list_expand_versions,
-                    state.otherVersions,
-                )
+                val n = state.otherVersions
+                versions.text = when {
+                    // Grid cells are narrow: short badge text.
+                    mType == TYPE_GRID && state.expanded -> mResources.getString(R.string.gallery_list_collapse_versions_short)
+                    mType == TYPE_GRID -> mResources.getQuantityString(R.plurals.gallery_list_versions_badge, n, n)
+                    state.expanded -> mResources.getQuantityString(R.plurals.gallery_list_collapse_versions, n, n)
+                    else -> mResources.getQuantityString(R.plurals.gallery_list_expand_versions, n, n)
+                }
             }
             else -> versions.visibility = View.GONE
         }

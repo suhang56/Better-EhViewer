@@ -1,6 +1,9 @@
 /*
  * Copyright 2016 Hippo Seven
  *
+ * Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+ * fold gallery versions); see NOTICE.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -23,6 +26,7 @@ import android.content.Intent
 import android.content.res.Resources
 import android.net.Uri
 import android.os.Bundle
+import android.os.Parcelable
 import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableStringBuilder
@@ -175,6 +179,9 @@ class GalleryListScene :
     private var mListController: ProjectedListController? = null
     private var mUnknownFavoritesTipShown = false
 
+    /** Expanded version groups; kept by the scene so they survive view recreation (opening a gallery, rotation). */
+    private val mExpandedGids = HashSet<Long>()
+
     private val mFavoriteDataListener = GalleryListFeatures.Listener {
         val controller = mListController ?: return@Listener
         if (controller.isActive && controller.options.hideFavorites) {
@@ -290,11 +297,13 @@ class GalleryListScene :
         val localChanged = GalleryListFeatures.reloadLocalFavorites()
         if (controller.reloadOptions()) {
             controller.refreshAll()
-            mHelper?.onProjectionChanged()
-        } else if (localChanged && controller.isActive && controller.options.hideFavorites) {
+        } else if (controller.isActive && controller.options.hideFavorites) {
+            // Favourites may also have changed while this view was destroyed (e.g. in the detail scene).
             controller.refreshWithDiff()
-            mHelper?.onProjectionChanged()
+        } else if (localChanged) {
+            controller.refreshAll()
         }
+        mHelper?.onProjectionChanged()
     }
 
     private fun onInit() {
@@ -305,6 +314,7 @@ class GalleryListScene :
         mHasFirstRefresh = savedInstanceState.getBoolean(KEY_HAS_FIRST_REFRESH)
         mUrlBuilder = savedInstanceState.getParcelableCompat(KEY_LIST_URL_BUILDER)!!
         mState = savedInstanceState.getInt(KEY_STATE)
+        savedInstanceState.getLongArray(KEY_EXPANDED_GIDS)?.let { mExpandedGids += it.toList() }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -317,6 +327,7 @@ class GalleryListScene :
         outState.putBoolean(KEY_HAS_FIRST_REFRESH, hasFirstRefresh)
         outState.putParcelable(KEY_LIST_URL_BUILDER, mUrlBuilder)
         outState.putInt(KEY_STATE, mState)
+        outState.putLongArray(KEY_EXPANDED_GIDS, mExpandedGids.toLongArray())
     }
 
     override fun onDestroy() {
@@ -447,7 +458,7 @@ class GalleryListScene :
         val paddingBottomFab = resources.getDimensionPixelOffset(R.dimen.gallery_padding_bottom_fab)
         mViewTransition = BringOutTransition(mContentLayout, mSearchLayout)
         mHelper = GalleryListHelper()
-        mListController = ProjectedListController({ mHelper?.data ?: emptyList() }, { mAdapter })
+        mListController = ProjectedListController({ mHelper?.data ?: emptyList() }, { mAdapter }, mExpandedGids)
         mContentLayout.setHelper(mHelper!!)
         mContentLayout.fastScroller.setOnDragHandlerListener(this)
         mContentLayout.setFitPaddingTop(paddingTopSB)
@@ -460,6 +471,7 @@ class GalleryListScene :
         mRecyclerView!!.clipToPadding = false
         mRecyclerView!!.clipChildren = false
         mRecyclerView!!.addOnScrollListener(mOnScrollListener)
+        mRecyclerView!!.addOnItemTouchListener(SwipeUpAtEndListener(mHideActionFabSlop * 4))
         fastScroller.setPadding(
             fastScroller.paddingLeft,
             fastScroller.paddingTop + paddingTopSB,
@@ -846,7 +858,7 @@ class GalleryListScene :
             0 -> openDrawer(GravityCompat.END)
             // Go to
             1 -> {
-                if (!mIsTopList || mHelper!!.canGoTo()) showGoToDialog()
+                if (!mIsTopList || mHelper!!.canGoTo() || mHelper!!.isProjectionTipShown) showGoToDialog()
             }
             // Last page
             2 -> showGidDialog()
@@ -1606,7 +1618,7 @@ class GalleryListScene :
                 return
             }
             mPendingTaskType = type
-            mRequestInFlight = true
+            mInFlightTaskId = taskId
             if (type != TYPE_NEXT_PAGE_KEEP_POS) {
                 // Refresh, jump, previous page: user actions restore the auto-load budget.
                 mListController?.autoLoadPolicy?.onUserAction()
@@ -1641,15 +1653,31 @@ class GalleryListScene :
         }
 
         private var mPendingTaskType = TYPE_REFRESH
-        private var mRequestInFlight = false
+
+        /** Task id of the request in flight; a cancelled or replaced task is no longer "in flight". */
+        private var mInFlightTaskId = -1
+
+        /** An automatic next-page request is posted but not sent yet. */
+        private var mAutoLoadPending = false
+
+        /** The tip currently shown was produced by the projection ("all hidden"), not an error / empty result. */
+        var isProjectionTipShown = false
+            private set
+
+        /** The "swipe up to load more" hint was shown for this scene. */
+        private var mSwipeHintShown = false
+
+        private val isRequestInFlight: Boolean
+            get() = mInFlightTaskId != -1 && isCurrentTask(mInFlightTaskId)
 
         fun onRequestFinished() {
-            mRequestInFlight = false
+            mInFlightTaskId = -1
         }
 
         override fun dataToAdapterPosition(position: Int): Int = mListController?.adapterIndex(position) ?: position
 
-        override fun adapterToDataPosition(position: Int): Int = mListController?.dataIndex(position) ?: position
+        // Anchor queries (current page, quick-search progress) use where a group first appeared.
+        override fun adapterToDataPosition(position: Int): Int = mListController?.anchorIndex(position) ?: position
 
         override fun onBottomReached(dy: Int): Boolean {
             val controller = mListController ?: return true
@@ -1660,20 +1688,32 @@ class GalleryListScene :
                 policy.onUserAction()
                 return true
             }
-            // Layout pass with a list too short to scroll: counts as an automatic request.
-            if (mRequestInFlight || policy.isExhausted) return false
+            // Layout pass with a list too short to scroll: an automatic request, counted once.
+            if (mAutoLoadPending || isRequestInFlight || policy.isExhausted) return false
             policy.onAutoLoad()
             return true
         }
 
         override fun onTipClick() {
             val controller = mListController
-            if (controller != null && controller.isActive && data.isNotEmpty() && controller.visibleCount == 0) {
+            if (controller != null && controller.isActive && isProjectionTipShown && data.isNotEmpty()) {
                 controller.autoLoadPolicy.onUserAction()
                 showProgressBar()
+                isProjectionTipShown = false
                 if (requestNextPage()) return
             }
             super.onTipClick()
+        }
+
+        /**
+         * The user swiped up on a list that cannot scroll (everything shown fits on screen) after
+         * the automatic budget was used: load the next page.
+         */
+        fun onSwipeUpAtEnd() {
+            val controller = mListController ?: return
+            if (!controller.isActive || !hasNextPage || isRequestInFlight || shownViewIndex != 0) return
+            controller.autoLoadPolicy.onUserAction()
+            requestNextPage()
         }
 
         fun visibleBeforeLoad(): Int = when (mPendingTaskType) {
@@ -1683,53 +1723,83 @@ class GalleryListScene :
 
         /** Called after a page was delivered to the helper. Tops up the results if too many were hidden. */
         fun afterPageLoaded(visibleBefore: Int) {
-            mRequestInFlight = false
+            onRequestFinished()
             val controller = mListController ?: return
             if (!controller.isActive) return
+            // The helper showed the list for this new data: any previous projection tip is gone.
+            if (shownViewIndex == 0) isProjectionTipShown = false
             onProjectionChanged()
             if (mPendingTaskType == TYPE_PRE_PAGE || mPendingTaskType == TYPE_PRE_PAGE_KEEP_POS) return
             val visible = controller.visibleCount
             val policy = controller.autoLoadPolicy
             if (policy.shouldAutoLoad(hasNextPage, visible, visible - visibleBefore)) {
-                policy.onAutoLoad()
+                mAutoLoadPending = true
                 // Post: the helper finishes its own bookkeeping for this page first.
                 mRecyclerView?.post {
                     val helper = mHelper ?: return@post
-                    if (!helper.mRequestInFlight) helper.requestNextPage()
+                    helper.mAutoLoadPending = false
+                    val c = mListController ?: return@post
+                    if (!helper.isRequestInFlight && !c.autoLoadPolicy.isExhausted && helper.requestNextPage()) {
+                        c.autoLoadPolicy.onAutoLoad()
+                    }
+                }
+            } else if (policy.isExhausted && hasNextPage && visible > 0 && mRecyclerView?.canScrollVertically(1) == false && !mSwipeHintShown) {
+                mSwipeHintShown = true
+                this@GalleryListScene.context?.let {
+                    Toast.makeText(it, R.string.gallery_list_swipe_up_load_more, Toast.LENGTH_SHORT).show()
                 }
             }
         }
 
-        /** Shows a tip instead of an empty list, and prompts for a sync if favourite states are unknown. */
+        /**
+         * Keeps the "all hidden" tip in sync with the projection, and asks for the favourite state
+         * of galleries shown as unknown. Never replaces the progress view, an error or the empty
+         * result tip, and does nothing while a new list is loading.
+         */
         fun onProjectionChanged() {
             val controller = mListController ?: return
-            if (!controller.isActive) return
-            if (data.isNotEmpty()) {
-                if (controller.visibleCount == 0) {
-                    val canLoadMore = hasNextPage
-                    showTipText(
-                        getString(
-                            if (canLoadMore) R.string.gallery_list_all_hidden_load_more else R.string.gallery_list_all_hidden,
-                            controller.hiddenCount,
-                        ),
-                    )
-                } else if (shownViewIndex == 2) {
-                    showContentView()
-                }
+            val loadingNewList = isRequestInFlight && (mPendingTaskType == TYPE_REFRESH || mPendingTaskType == TYPE_SOMEWHERE)
+            if (!controller.isActive || controller.visibleCount > 0 || data.isEmpty()) {
+                if (isProjectionTipShown && shownViewIndex == 2) showContentView()
+                isProjectionTipShown = false
+            } else if (!loadingNewList && (shownViewIndex == 0 || isProjectionTipShown)) {
+                showTipText(
+                    resources.getQuantityString(
+                        if (hasNextPage) R.plurals.gallery_list_all_hidden_load_more else R.plurals.gallery_list_all_hidden,
+                        controller.hiddenCount,
+                        controller.hiddenCount,
+                    ),
+                )
+                isProjectionTipShown = true
             }
-            if (controller.unknownFavorites > 0) {
-                GalleryListFeatures.maybeAutoSync()
-                if (!mUnknownFavoritesTipShown && !GalleryListFeatures.isSyncing) {
+            if (controller.isActive && controller.unknownFavorites > 0) {
+                GalleryListFeatures.onUnknownFavoritesShown()
+                if (!mUnknownFavoritesTipShown && !GalleryListFeatures.isResolvingUnknown) {
                     mUnknownFavoritesTipShown = true
                     this@GalleryListScene.context?.let {
                         Toast.makeText(
                             it,
-                            getString(R.string.gallery_list_favorite_state_unknown, controller.unknownFavorites),
+                            resources.getQuantityString(
+                                R.plurals.gallery_list_favorite_state_unknown,
+                                controller.unknownFavorites,
+                                controller.unknownFavorites,
+                            ),
                             Toast.LENGTH_LONG,
                         ).show()
                     }
                 }
             }
+        }
+
+        override fun saveInstanceState(superState: Parcelable?): Parcelable {
+            val bundle = super.saveInstanceState(superState) as Bundle
+            bundle.putBoolean(KEY_PROJECTION_TIP, isProjectionTipShown)
+            return bundle
+        }
+
+        override fun restoreInstanceState(state: Parcelable): Parcelable? {
+            isProjectionTipShown = (state as? Bundle)?.getBoolean(KEY_PROJECTION_TIP) == true
+            return super.restoreInstanceState(state)
         }
 
         override fun onShowView(hiddenView: View, shownView: View) {
@@ -1744,6 +1814,25 @@ class GalleryListScene :
                 mSearchBarMover?.showSearchBar()
                 showActionFab()
             }
+        }
+    }
+
+    /** Detects an upward swipe on a list that cannot scroll any further, without consuming it. */
+    private inner class SwipeUpAtEndListener(private val minDistance: Int) : RecyclerView.SimpleOnItemTouchListener() {
+        private var downY = Float.NaN
+
+        override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> downY = e.y
+                MotionEvent.ACTION_UP -> {
+                    if (!downY.isNaN() && downY - e.y > minDistance && !rv.canScrollVertically(1)) {
+                        mHelper?.onSwipeUpAtEnd()
+                    }
+                    downY = Float.NaN
+                }
+                MotionEvent.ACTION_CANCEL -> downY = Float.NaN
+            }
+            return false
         }
     }
 
@@ -1791,6 +1880,8 @@ class GalleryListScene :
         const val KEY_LIST_URL_BUILDER = "list_url_builder"
         const val KEY_HAS_FIRST_REFRESH = "has_first_refresh"
         const val KEY_STATE = "state"
+        private const val KEY_EXPANDED_GIDS = "expanded_gids"
+        private const val KEY_PROJECTION_TIP = "projection_tip"
         private const val BACK_PRESSED_INTERVAL = 2000
         private const val STATE_NORMAL = 0
         private const val STATE_SIMPLE_SEARCH = 1

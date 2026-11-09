@@ -1,0 +1,67 @@
+name: Verify on device
+
+# Runs the instrumented verification suite (app/src/androidTest/.../verify) on an
+# Android emulator against LIVE e-hentai.org (guest) and the real app UI.
+# All results are printed into the job log (VERIFY tag, report file, failing tests).
+
+on:
+  push:
+    branches:
+      - ccr-6d78e0b9-orokj0
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Emulator verification (API 34)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # Build first, so the emulator is not waiting for the compiler.
+      - name: Build app and test APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Run verification suite on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          disk-size: 6000M
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/run-verify.sh
+
+      - name: Upload verification output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-output-${{ github.sha }}
+          path: |
+            verify-output/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+          if-no-files-found: warn

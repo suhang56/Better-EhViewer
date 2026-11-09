@@ -1,6 +1,9 @@
 /*
  * Copyright 2016 Hippo Seven
  *
+ * Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+ * fold gallery versions); see NOTICE.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at

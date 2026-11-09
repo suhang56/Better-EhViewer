@@ -60,12 +60,23 @@ data class CloudSyncState(
     val lastFullSyncAt: Long = 0,
     /** Time of the last attempt (success or not), 0 if never. */
     val lastAttemptAt: Long = 0,
-    /** Error of the last attempt, null if it succeeded. */
+    /** Error of the last attempt, null if it did not fail. */
     val lastError: String? = null,
+    /** Reason code of the last attempt if it stopped early ([CloudFavoriteSyncer.Result.Partial]), else null. */
+    val lastPartial: String? = null,
 ) {
     fun isFresh(now: Long, ttlMillis: Long = DEFAULT_TTL): Boolean = lastFullSyncAt > 0 && now - lastFullSyncAt in 0..ttlMillis
 
-    fun shouldAutoSync(now: Long, ttlMillis: Long = DEFAULT_TTL, retryMillis: Long = DEFAULT_RETRY): Boolean = !isFresh(now, ttlMillis) && (lastAttemptAt == 0L || now - lastAttemptAt !in 0..retryMillis)
+    /**
+     * A failed sync is retried after [retryMillis]; a partial one (e.g. more favourites than the
+     * page cap) only after [ttlMillis], so huge favourite lists are not re-crawled every half hour.
+     */
+    fun shouldAutoSync(now: Long, ttlMillis: Long = DEFAULT_TTL, retryMillis: Long = DEFAULT_RETRY): Boolean {
+        if (isFresh(now, ttlMillis)) return false
+        if (lastAttemptAt == 0L) return true
+        val window = if (lastPartial != null) ttlMillis else retryMillis
+        return now - lastAttemptAt !in 0..window
+    }
 
     companion object {
         const val DEFAULT_TTL = 24L * 60 * 60 * 1000
@@ -85,25 +96,33 @@ data class CloudSyncState(
  */
 class FavoriteResolver(
     private val isLocalFavorite: (Long) -> Boolean,
-    private val cloudCacheSlot: (Long) -> Int?,
+    private val cloudCacheEntry: (Long) -> CloudFavoriteCache.Entry?,
     private val inlineObservation: (Long) -> InlineObservation?,
     private val syncState: CloudSyncState,
     private val signedIn: Boolean,
     private val cloudCacheEmpty: Boolean,
     private val now: Long,
+    /**
+     * True if this session was recently proven valid (a favourites page loaded). Then a list
+     * page without favourite marker is trusted even when none of its galleries is favourited.
+     */
+    private val sessionVerified: Boolean = false,
 ) {
     fun resolve(gid: Long): FavoriteState {
         if (isLocalFavorite(gid)) return FavoriteState.LOCAL
-        val cached = cloudCacheSlot(gid)
+        val cached = cloudCacheEntry(gid)
         val inline = inlineObservation(gid)
         if (inline != null) {
             if (inline.favorited) return FavoriteState.CLOUD
+            // "No marker" means "not favourited" only if the session is known to be valid:
+            // a silently logged-out session shows no markers at all.
+            val trusted = inline.loginProven || sessionVerified
             if (cached != null) {
-                // The page says "not favourited" but our cache says it is.
-                // Trust the page only if it proved the session is valid and is newer than the cache entry.
-                return if (inline.loginProven) FavoriteState.NOT_FAVORITED else FavoriteState.UNKNOWN
+                // The page says "not favourited" but the cache says it is: the newer one wins.
+                if (inline.observedAt < cached.updatedAt) return FavoriteState.CLOUD
+                return if (trusted) FavoriteState.NOT_FAVORITED else FavoriteState.UNKNOWN
             }
-            if (signedIn) return FavoriteState.NOT_FAVORITED
+            if (trusted && signedIn) return FavoriteState.NOT_FAVORITED
         }
         if (cached != null) return FavoriteState.CLOUD
         if (syncState.isFresh(now)) return FavoriteState.NOT_FAVORITED

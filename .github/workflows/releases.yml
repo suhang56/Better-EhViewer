@@ -22,26 +22,28 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # Better-EhViewer publishes only the "better" build (applicationId org.moedog.ehviewer.better),
+      # so a release of this fork never installs over the original EhViewer.
       - name: Gradle Build
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleBetter
 
       - name: Rename Apks
         run: |
-          mv app/build/outputs/apk/release/app-universal-release.apk EhViewer-${{ github.ref_name }}-universal.apk
-          mv app/build/outputs/apk/release/app-arm64-v8a-release.apk EhViewer-${{ github.ref_name }}-arm64-v8a.apk
-          mv app/build/outputs/apk/release/app-armeabi-v7a-release.apk EhViewer-${{ github.ref_name }}-armeabi-v7a.apk
-          mv app/build/outputs/apk/release/app-x86_64-release.apk EhViewer-${{ github.ref_name }}-x86_64.apk
-          mv app/build/outputs/mapping/release/mapping.txt EhViewer-${{ github.ref_name }}-mapping.txt
-          mv app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip EhViewer-${{ github.ref_name }}-native-debug-symbols.zip
+          mv app/build/outputs/apk/better/app-universal-better.apk EhViewer-Better-${{ github.ref_name }}-universal.apk
+          mv app/build/outputs/apk/better/app-arm64-v8a-better.apk EhViewer-Better-${{ github.ref_name }}-arm64-v8a.apk
+          mv app/build/outputs/apk/better/app-armeabi-v7a-better.apk EhViewer-Better-${{ github.ref_name }}-armeabi-v7a.apk
+          mv app/build/outputs/apk/better/app-x86_64-better.apk EhViewer-Better-${{ github.ref_name }}-x86_64.apk
+          mv app/build/outputs/mapping/better/mapping.txt EhViewer-Better-${{ github.ref_name }}-mapping.txt
+          mv app/build/outputs/native-debug-symbols/better/native-debug-symbols.zip EhViewer-Better-${{ github.ref_name }}-native-debug-symbols.zip
 
       - name: Releases
         uses: softprops/action-gh-release@v3
         with:
           body: Bump Version
           files: |
-            EhViewer-${{ github.ref_name }}-universal.apk
-            EhViewer-${{ github.ref_name }}-arm64-v8a.apk
-            EhViewer-${{ github.ref_name }}-armeabi-v7a.apk
-            EhViewer-${{ github.ref_name }}-x86_64.apk
-            EhViewer-${{ github.ref_name }}-mapping.txt
-            EhViewer-${{ github.ref_name }}-native-debug-symbols.zip
+            EhViewer-Better-${{ github.ref_name }}-universal.apk
+            EhViewer-Better-${{ github.ref_name }}-arm64-v8a.apk
+            EhViewer-Better-${{ github.ref_name }}-armeabi-v7a.apk
+            EhViewer-Better-${{ github.ref_name }}-x86_64.apk
+            EhViewer-Better-${{ github.ref_name }}-mapping.txt
+            EhViewer-Better-${{ github.ref_name }}-native-debug-symbols.zip

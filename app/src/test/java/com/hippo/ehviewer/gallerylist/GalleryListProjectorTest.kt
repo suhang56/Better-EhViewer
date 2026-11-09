@@ -32,6 +32,14 @@ class GalleryListProjectorTest {
 
     private fun gids(p: GalleryListProjector.Projection) = p.rows.map { it.gid }
 
+    /** Every row must display (rawIndex) exactly the gallery it claims (gid). */
+    private fun assertDisplayConsistent(list: List<GalleryEntry?>, p: GalleryListProjector.Projection) {
+        p.rows.forEachIndexed { r, row ->
+            assertEquals("row $r displays the wrong gallery", row.gid, list[p.rowToRaw(r)]!!.gid)
+        }
+        assertEquals("a gallery is shown twice", p.rows.size, p.rows.map { it.gid }.toSet().size)
+    }
+
     @Test
     fun identityWhenBothFeaturesAreOff() {
         val list = listOf(entry(1, "[A] One"), entry(1, "[A] One"), entry(2, "[A] Two"))
@@ -76,10 +84,13 @@ class GalleryListProjectorTest {
         )
         val p = GalleryListProjector.project(list, fold, noneFavorited)
         assertEquals(listOf(13L, 11L), gids(p))
+        assertDisplayConsistent(list, p)
         val rep = p.rows[0]
         assertEquals(Role.REPRESENTATIVE, rep.role)
         assertEquals(3, rep.groupSize)
-        assertEquals(0, rep.rawIndex) // shown where the group first appeared
+        assertEquals(3, rep.rawIndex) // displays and opens the chosen representative (gid 13)
+        assertEquals(0, rep.anchorIndex) // but sits where the group first appeared
+        assertEquals(0, p.rowToAnchor(0))
         assertEquals(2, p.foldedAway)
         // Raw positions of folded members map to the group row.
         assertEquals(0, p.rawToRow(2))
@@ -96,6 +107,9 @@ class GalleryListProjectorTest {
         )
         val p = GalleryListProjector.project(list, fold, noneFavorited, expandedGids = setOf(10L, 13L))
         assertEquals(listOf(13L, 10L, 11L), gids(p))
+        assertDisplayConsistent(list, p)
+        assertEquals(listOf(2, 0, 1), p.rows.map { it.rawIndex })
+        assertEquals(listOf(0, 0, 1), p.rows.map { it.anchorIndex })
         assertEquals(listOf(Role.REPRESENTATIVE, Role.MEMBER, Role.SINGLE), p.rows.map { it.role })
         assertTrue(p.rows[0].expanded)
         // Stable ids: group row keeps its id regardless of which version represents it.
@@ -151,6 +165,7 @@ class GalleryListProjectorTest {
         val page2 = listOf(entry(13, "[Artist] Title [Chinese]", titleJpn = "[作者] タイトル [中国翻訳]", lang = "ZH"))
         val before = GalleryListProjector.project(page1, fold, noneFavorited)
         val after = GalleryListProjector.project(page1 + page2, fold, noneFavorited)
+        assertDisplayConsistent(page1 + page2, after)
         assertEquals("g10", before.rows[0].stableId)
         assertEquals("g10", after.rows[0].stableId)
         assertEquals(13L, after.rows[0].gid)

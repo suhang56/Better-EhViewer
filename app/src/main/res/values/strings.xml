@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?><!--
   ~ Copyright 2016 Hippo Seven
   ~
+  ~ Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+  ~ fold gallery versions); see NOTICE.
+  ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
   ~ You may obtain a copy of the License at
@@ -721,11 +724,36 @@
     <string name="fold_language_auto">Follow app language</string>
     <string name="fold_language_none">No preference (best quality)</string>
     <string name="fold_language_original">Japanese / original</string>
-    <string name="gallery_list_expand_versions">Show %d other versions</string>
-    <string name="gallery_list_collapse_versions">Hide %d other versions</string>
-    <string name="gallery_list_other_version">Other version of the work above</string>
+    <string name="gallery_list_other_version">Another version of the same work</string>
     <string name="gallery_list_favorite_unknown">Favorite state unknown</string>
-    <string name="gallery_list_favorite_state_unknown">Cloud favorite state of %d galleries is unknown, they are kept visible. Sync cloud favorites in settings.</string>
-    <string name="gallery_list_all_hidden">All %d loaded results are hidden or folded</string>
-    <string name="gallery_list_all_hidden_load_more">All %d loaded results are hidden or folded. Tap to load more</string>
+    <string name="gallery_list_collapse_versions_short">Collapse</string>
+    <string name="settings_eh_cloud_favorites_sync_partial_status">Last sync was partial: %1$s. %2$d galleries cached. Tap to sync again</string>
+    <string name="cloud_fav_partial_page_limit">stopped after %d pages</string>
+    <string name="cloud_fav_partial_missing">%1$d of %2$d favorites seen</string>
+    <string name="cloud_fav_partial_stuck">favorites pages did not advance</string>
+    <plurals name="gallery_list_expand_versions">
+        <item quantity="one">Show %d other version</item>
+        <item quantity="other">Show %d other versions</item>
+    </plurals>
+    <plurals name="gallery_list_collapse_versions">
+        <item quantity="one">Hide %d other version</item>
+        <item quantity="other">Hide %d other versions</item>
+    </plurals>
+    <plurals name="gallery_list_versions_badge">
+        <item quantity="one">+%d version</item>
+        <item quantity="other">+%d versions</item>
+    </plurals>
+    <plurals name="gallery_list_favorite_state_unknown">
+        <item quantity="one">Cloud favorite state of %d gallery is unknown, it is kept visible. Sync cloud favorites in settings.</item>
+        <item quantity="other">Cloud favorite state of %d galleries is unknown, they are kept visible. Sync cloud favorites in settings.</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden">
+        <item quantity="one">The only loaded result is hidden or folded</item>
+        <item quantity="other">All %d loaded results are hidden or folded</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden_load_more">
+        <item quantity="one">The only loaded result is hidden or folded. Tap to load more</item>
+        <item quantity="other">All %d loaded results are hidden or folded. Tap to load more</item>
+    </plurals>
+    <string name="gallery_list_swipe_up_load_more">Swipe up to load more results</string>
 </resources>

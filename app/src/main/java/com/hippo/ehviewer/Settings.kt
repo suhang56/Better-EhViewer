@@ -1,6 +1,9 @@
 /*
  * Copyright 2016 Hippo Seven
  *
+ * Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+ * fold gallery versions); see NOTICE.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -89,6 +92,7 @@ object Settings {
     private const val KEY_CLOUD_FAV_LAST_FULL_SYNC = "cloud_fav_last_full_sync"
     private const val KEY_CLOUD_FAV_LAST_ATTEMPT = "cloud_fav_last_attempt"
     private const val KEY_CLOUD_FAV_LAST_ERROR = "cloud_fav_last_error"
+    private const val KEY_CLOUD_FAV_LAST_PARTIAL = "cloud_fav_last_partial"
     val SIGN_IN_REQUIRED = arrayOf(
         KEY_GALLERY_SITE,
         KEY_IMAGE_LIMITS,
@@ -500,6 +504,10 @@ object Settings {
     var cloudFavLastError: String?
         get() = getString(KEY_CLOUD_FAV_LAST_ERROR, null)
         set(value) = putString(KEY_CLOUD_FAV_LAST_ERROR, value)
+
+    var cloudFavLastPartial: String?
+        get() = getString(KEY_CLOUD_FAV_LAST_PARTIAL, null)
+        set(value) = putString(KEY_CLOUD_FAV_LAST_PARTIAL, value)
 
     val screenRotation: Int
         get() = getIntFromStr(KEY_SCREEN_ROTATION, DEFAULT_SCREEN_ROTATION)

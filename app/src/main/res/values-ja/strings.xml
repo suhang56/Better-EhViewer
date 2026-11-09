@@ -2,6 +2,9 @@
 <!--
   ~ Copyright 2016 Hippo Seven
   ~
+  ~ Modified in 2026 by Better-EhViewer contributors (hide favorited galleries /
+  ~ fold gallery versions); see NOTICE.
+  ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
   ~ You may obtain a copy of the License at
@@ -643,11 +646,30 @@
     <string name="fold_language_auto">アプリの言語に従う</string>
     <string name="fold_language_none">指定なし（品質優先）</string>
     <string name="fold_language_original">日本語 / オリジナル</string>
-    <string name="gallery_list_expand_versions">他の %d 件のバージョンを表示</string>
-    <string name="gallery_list_collapse_versions">他の %d 件のバージョンを隠す</string>
-    <string name="gallery_list_other_version">上の作品の別バージョン</string>
+    <string name="gallery_list_other_version">同じ作品の別バージョン</string>
     <string name="gallery_list_favorite_unknown">お気に入り状態不明</string>
-    <string name="gallery_list_favorite_state_unknown">%d 件のギャラリーのクラウドお気に入り状態が不明なため、表示したままにしています。設定で同期できます。</string>
-    <string name="gallery_list_all_hidden">読み込んだ %d 件はすべて非表示またはまとめられています</string>
-    <string name="gallery_list_all_hidden_load_more">読み込んだ %d 件はすべて非表示またはまとめられています。タップしてさらに読み込む</string>
+    <string name="gallery_list_collapse_versions_short">閉じる</string>
+    <string name="settings_eh_cloud_favorites_sync_partial_status">前回の同期は不完全でした：%1$s。%2$d 件をキャッシュ済み。タップして再同期</string>
+    <string name="cloud_fav_partial_page_limit">%d ページの上限に到達</string>
+    <string name="cloud_fav_partial_missing">%2$d 件中 %1$d 件のみ取得</string>
+    <string name="cloud_fav_partial_stuck">お気に入りページが進みません</string>
+    <plurals name="gallery_list_expand_versions">
+        <item quantity="other">他の %d 件のバージョンを表示</item>
+    </plurals>
+    <plurals name="gallery_list_collapse_versions">
+        <item quantity="other">他の %d 件のバージョンを隠す</item>
+    </plurals>
+    <plurals name="gallery_list_versions_badge">
+        <item quantity="other">+%d 件の版</item>
+    </plurals>
+    <plurals name="gallery_list_favorite_state_unknown">
+        <item quantity="other">%d 件のギャラリーのクラウドお気に入り状態が不明なため、表示したままにしています。設定で同期できます。</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden">
+        <item quantity="other">読み込んだ %d 件はすべて非表示またはまとめられています</item>
+    </plurals>
+    <plurals name="gallery_list_all_hidden_load_more">
+        <item quantity="other">読み込んだ %d 件はすべて非表示またはまとめられています。タップしてさらに読み込む</item>
+    </plurals>
+    <string name="gallery_list_swipe_up_load_more">上にスワイプしてさらに読み込む</string>
 </resources>

@@ -31,6 +31,7 @@ import com.hippo.ehviewer.dao.CloudFavoriteInfo
 import com.hippo.ehviewer.dao.buildCloudFavoritesDB
 import com.hippo.util.launchIO
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +44,12 @@ import kotlinx.coroutines.sync.withLock
 object GalleryListFeatures {
     private const val TAG = "GalleryListFeatures"
     private const val SYNC_PAGE_DELAY_MS = 1500L
+
+    /** A favourites page loaded within this window proves the session cookies work. */
+    private const val SESSION_VERIFIED_TTL_MS = 6L * 60 * 60 * 1000
+
+    /** Minimum time between two automatic session checks. */
+    private const val SESSION_CHECK_RETRY_MS = 30L * 60 * 1000
 
     fun interface Listener {
         /** Favourite data changed; visible lists should be re-projected. Called on the main thread. */
@@ -62,6 +69,27 @@ object GalleryListFeatures {
     @Volatile
     private var lastSyncResult: CloudFavoriteSyncer.Result? = null
 
+    @Volatile
+    private var syncJob: Job? = null
+
+    @Volatile
+    private var sessionVerifiedAt = 0L
+
+    @Volatile
+    private var lastSessionCheckAt = 0L
+
+    @Volatile
+    var isVerifyingSession = false
+        private set
+
+    /** True if a favourites page loaded recently with the current cookies (they are not silently logged out). */
+    val isSessionVerified: Boolean
+        get() = sessionVerifiedAt > 0 && System.currentTimeMillis() - sessionVerifiedAt in 0..SESSION_VERIFIED_TTL_MS
+
+    private fun markSessionVerified() {
+        sessionVerifiedAt = System.currentTimeMillis()
+    }
+
     private val cloudDb by lazy { buildCloudFavoritesDB(EhApplication.application) }
 
     private val persistence = object : CloudFavoriteCache.Persistence {
@@ -72,11 +100,12 @@ object GalleryListFeatures {
             gids.chunked(500).forEach { dao.delete(it) }
         }
         override fun replaceAll(entries: Collection<CloudFavoriteCache.Entry>) = dao.replaceAll(entries.map { CloudFavoriteInfo(it.gid, it.slot, it.updatedAt) })
-        override fun loadSyncState() = CloudSyncState(Settings.cloudFavLastFullSync, Settings.cloudFavLastAttempt, Settings.cloudFavLastError)
+        override fun loadSyncState() = CloudSyncState(Settings.cloudFavLastFullSync, Settings.cloudFavLastAttempt, Settings.cloudFavLastError, Settings.cloudFavLastPartial)
         override fun saveSyncState(state: CloudSyncState) {
             Settings.cloudFavLastFullSync = state.lastFullSyncAt
             Settings.cloudFavLastAttempt = state.lastAttemptAt
             Settings.cloudFavLastError = state.lastError
+            Settings.cloudFavLastPartial = state.lastPartial
         }
     }
 
@@ -140,12 +169,15 @@ object GalleryListFeatures {
     fun onGalleryListPage(observed: Map<Long, Int>, isExHentai: Boolean) {
         if (observed.isEmpty() || !EhCookieStore.hasSignedIn()) return
         val loginProven = isExHentai || observed.values.any { it != InlineObservation.SLOT_NONE }
+        if (loginProven) markSessionVerified()
         runCatching { cloudCache.recordListPage(observed, loginProven) }
             .onFailure { Log.e(TAG, "recordListPage", it) }
     }
 
     /** Galleries listed on a cloud favourites page are favourited. */
     fun onFavoritesPage(list: List<GalleryInfo>) {
+        // FavoritesParser throws NotLoggedInException for a guest, so reaching here proves the session.
+        markSessionVerified()
         val map = list.filter { it.gid > 0 }.associate { it.gid to if (it.favoriteSlot in 0..9) it.favoriteSlot else InlineObservation.SLOT_UNKNOWN_COLOR }
         runCatching { cloudCache.markFavorited(map) }.onFailure { Log.e(TAG, "onFavoritesPage", it) }
     }
@@ -159,6 +191,11 @@ object GalleryListFeatures {
     }
 
     fun onSignedOut() {
+        // A running sync belongs to the old session: stop it; its result is dropped by generation anyway.
+        syncJob?.cancel()
+        syncJob = null
+        sessionVerifiedAt = 0
+        lastSessionCheckAt = 0
         runCatching { cloudCache.clear() }.onFailure { Log.e(TAG, "clear", it) }
         notifyChanged()
     }
@@ -169,12 +206,13 @@ object GalleryListFeatures {
         cloudCache.ensureLoaded()
         return FavoriteResolver(
             isLocalFavorite = ::isLocalFavorite,
-            cloudCacheSlot = cloudCache::slotOf,
+            cloudCacheEntry = cloudCache::entryOf,
             inlineObservation = cloudCache::inlineObservation,
             syncState = cloudCache.syncState,
             signedIn = EhCookieStore.hasSignedIn(),
             cloudCacheEmpty = cloudCache.isEmpty,
             now = System.currentTimeMillis(),
+            sessionVerified = isSessionVerified,
         )
     }
 
@@ -198,12 +236,44 @@ object GalleryListFeatures {
 
     // ---------------------------------------------------------------- sync
 
-    /** Starts a background sync if hiding is enabled, the user is signed in and the cache is stale. */
-    fun maybeAutoSync() {
-        if (!Settings.hideFavoritedGalleries || !EhCookieStore.hasSignedIn() || isSyncing) return
-        if (!cloudCache.syncState.shouldAutoSync(System.currentTimeMillis())) return
-        launchIO { sync() }
+    /**
+     * Called when a list shows galleries whose favourite state is unknown. Resolves them with
+     * as few requests as possible:
+     * 1. if the session was not verified recently, load ONE favourites page (proves the cookies,
+     *    so list pages without markers become trustworthy, and seeds the cache);
+     * 2. otherwise start a full sync, at most once per [CloudSyncState.DEFAULT_TTL]
+     *    (failures retried after [CloudSyncState.DEFAULT_RETRY]).
+     */
+    fun onUnknownFavoritesShown() {
+        if (!Settings.hideFavoritedGalleries || !EhCookieStore.hasSignedIn() || isSyncing || isVerifyingSession) return
+        val now = System.currentTimeMillis()
+        if (!isSessionVerified) {
+            if (now - lastSessionCheckAt in 0..SESSION_CHECK_RETRY_MS) return
+            lastSessionCheckAt = now
+            isVerifyingSession = true
+            launchIO {
+                try {
+                    val builder = FavListUrlBuilder(favCat = FavListUrlBuilder.FAV_CAT_ALL)
+                    val result = EhEngine.getFavoritesForSync(builder.build())
+                    onFavoritesPage(result.galleryInfoList)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Session check failed", e)
+                } finally {
+                    isVerifyingSession = false
+                    notifyChanged()
+                }
+            }
+            return
+        }
+        if (!cloudCache.syncState.shouldAutoSync(now)) return
+        syncJob = launchIO { sync() }
     }
+
+    /** True while an automatic check or sync may still resolve unknown favourite states. */
+    val isResolvingUnknown: Boolean
+        get() = isSyncing || isVerifyingSession
 
     /**
      * Full sync of the cloud favourites. Single flight: concurrent calls wait for
@@ -219,9 +289,12 @@ object GalleryListFeatures {
             isSyncing = true
             notifyChanged()
             try {
+                val generation = cloudCache.generation
                 val startedAt = cloudCache.markSyncStarted()
                 val syncer = CloudFavoriteSyncer(
                     fetchPage = { cursor ->
+                        // Signed out meanwhile: stop requesting pages for the old session.
+                        check(cloudCache.generation == generation) { "Signed out during sync" }
                         val builder = FavListUrlBuilder(favCat = FavListUrlBuilder.FAV_CAT_ALL)
                         builder.setIndex(cursor, true)
                         val result = EhEngine.getFavoritesForSync(builder.build())
@@ -231,14 +304,14 @@ object GalleryListFeatures {
                             },
                             next = result.next,
                             totalCount = result.countArray.sum().takeIf { it > 0 },
-                        )
+                        ).also { markSessionVerified() }
                     },
                     delayBetweenPages = { delay(SYNC_PAGE_DELAY_MS) },
                 )
                 val result = syncer.run()
                 lastSyncResult = result
                 if (result is CloudFavoriteSyncer.Result.Failed) Log.w(TAG, "Cloud favourites sync failed", result.error)
-                cloudCache.applySync(result, startedAt)
+                cloudCache.applySync(result, startedAt, generation)
                 result
             } catch (e: CancellationException) {
                 throw e
