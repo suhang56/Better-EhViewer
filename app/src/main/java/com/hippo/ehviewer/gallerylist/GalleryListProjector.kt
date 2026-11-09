@@ -124,9 +124,10 @@ object GalleryListProjector {
         val seen = HashSet<Long>()
         var duplicates = 0
         var hidden = 0
-        var unknown = 0
-        var lowRated = 0
-        val visibleIndices = ArrayList<Int>(entries.size)
+        // Candidates: not duplicated, not favourited. Low-rated galleries stay candidates so that a
+        // folded group keeps its place (anchor) and identity when one of its versions is hidden.
+        val candidates = ArrayList<Int>(entries.size)
+        val lowRatedGids = HashSet<Long>()
         val states = HashMap<Long, FavoriteState>()
         entries.forEachIndexed { i, e ->
             if (e == null) return@forEachIndexed
@@ -141,17 +142,17 @@ object GalleryListProjector {
                     hidden++
                     return@forEachIndexed
                 }
-                if (state == FavoriteState.UNKNOWN) unknown++
             }
             if (options.minRatingCount > 0) {
                 val count = ratingCountOf(e.gid)
-                if (count != null && count < options.minRatingCount) {
-                    lowRated++
-                    return@forEachIndexed
-                }
+                if (count != null && count < options.minRatingCount) lowRatedGids += e.gid
             }
-            visibleIndices += i
+            candidates += i
         }
+        val lowRated = lowRatedGids.size
+        val visibleIndices = candidates.filter { entries[it]!!.gid !in lowRatedGids }
+        // Unknown favourite state only matters for galleries that are actually listed.
+        val unknown = visibleIndices.count { states[entries[it]!!.gid] == FavoriteState.UNKNOWN }
 
         val rows = ArrayList<Row>(visibleIndices.size)
         val groupMembers = HashMap<Long, List<Long>>()
@@ -166,22 +167,24 @@ object GalleryListProjector {
             val g = VersionGrouper(chainRootOf)
             grouper = g
             val groupOfIndex = HashMap<Int, VersionGrouper.Group>()
-            visibleIndices.forEach { i -> groupOfIndex[i] = g.add(entries[i]!!) }
+            candidates.forEach { i -> groupOfIndex[i] = g.add(entries[i]!!) }
             val indexOfGid = HashMap<Long, Int>()
-            visibleIndices.forEach { i -> indexOfGid[entries[i]!!.gid] = i }
+            candidates.forEach { i -> indexOfGid[entries[i]!!.gid] = i }
             val emitted = HashSet<Int>()
-            visibleIndices.forEach { i ->
+            candidates.forEach { i ->
                 val group = groupOfIndex[i]!!
                 if (!emitted.add(group.id)) return@forEach
-                val members = group.members
+                // Identity and place come from ALL versions; display only from the remaining ones.
+                val groupKey = group.members.minOf { it.gid }
+                val members = group.members.filter { it.gid !in lowRatedGids }
+                if (members.isEmpty()) return@forEach
                 if (members.size == 1) {
                     val e = members[0]
-                    rows += Row(i, e.gid, Role.SINGLE, e.gid, 1, false, states[e.gid])
+                    rows += Row(indexOfGid[e.gid]!!, e.gid, Role.SINGLE, groupKey, 1, false, states[e.gid], anchorIndex = i)
                     return@forEach
                 }
                 val latest = members.mapNotNull { m -> newestOf(m.gid)?.takeIf { it == m.gid } }.toSet()
                 val sorted = members.sortedWith(VersionQuality.comparator(options.preferredLanguage, latest))
-                val groupKey = members.minOf { it.gid }
                 groupMembers[groupKey] = members.map { it.gid }
                 val expanded = members.any { it.gid in expandedGids }
                 val rep = sorted[0]

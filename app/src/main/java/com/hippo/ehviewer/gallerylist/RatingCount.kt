@@ -40,19 +40,39 @@ class RatingCountCache(
 
     data class Entry(val gid: Long, val count: Int, val fetchedAt: Long)
 
+    @Volatile
     private var loaded: HashMap<Long, Entry>? = null
+
+    /** False until the database was read; then the main thread can query without disk access. */
+    val isLoaded: Boolean get() = loaded != null
 
     @Synchronized
     private fun entries(): HashMap<Long, Entry> = loaded ?: HashMap(persistence.loadAll()).also { loaded = it }
 
+    /** Reads the database (call on a background thread). */
+    fun ensureLoaded() {
+        entries()
+    }
+
     @Synchronized
     fun countOf(gid: Long): Int? = entries()[gid]?.count
 
+    /**
+     * The count to filter with, or null if it must be treated as unknown (never fetched, or
+     * below [minCount] and stale: it may have grown, so the gallery is shown and re-checked).
+     */
     @Synchronized
+    fun knownCountOf(gid: Long, minCount: Int, recheckAfterMs: Long = RECHECK_AFTER_MS): Int? {
+        val entry = entries()[gid] ?: return null
+        if (entry.count < minCount && clock() - entry.fetchedAt !in 0..recheckAfterMs) return null
+        return entry.count
+    }
+
     fun record(gid: Long, count: Int) {
         if (gid <= 0 || count < 0) return
         val entry = Entry(gid, count, clock())
-        entries()[gid] = entry
+        synchronized(this) { entries()[gid] = entry }
+        // Disk write outside the lock: the main thread may be reading counts meanwhile.
         persistence.upsert(listOf(entry))
     }
 
@@ -75,17 +95,38 @@ class LookupThrottle(
     private val minIntervalMs: Long = DEFAULT_MIN_INTERVAL_MS,
     private val maxPerHour: Int = DEFAULT_MAX_PER_HOUR,
     private val clock: () -> Long = System::currentTimeMillis,
+    saved: SavedState? = null,
 ) {
+    /**
+     * Survives process restarts, so neither the hourly cap nor a ban pause is reset by
+     * killing the app. Wall-clock based; [delayBeforeNext] clamps values from the "future".
+     */
+    data class SavedState(val recent: List<Long>, val blockedUntil: Long)
+
     private val recent = ArrayDeque<Long>()
     private var lastRequestAt = Long.MIN_VALUE / 2
     private var blockedUntil = 0L
     private var failures = 0
 
+    init {
+        if (saved != null) {
+            recent.addAll(saved.recent.sorted())
+            recent.lastOrNull()?.let { lastRequestAt = it }
+            blockedUntil = saved.blockedUntil
+        }
+    }
+
     val consecutiveFailures: Int get() = failures
+
+    fun savedState(): SavedState = SavedState(recent.toList(), blockedUntil)
 
     /** Milliseconds to wait before the next lookup may be sent (0 = now). */
     fun delayBeforeNext(): Long {
         val now = clock()
+        // The clock went back (manual change, NTP): never wait for a timestamp in the future.
+        if (lastRequestAt > now) lastRequestAt = now
+        while (recent.isNotEmpty() && recent.last() > now) recent.removeLast()
+        blockedUntil = min(blockedUntil, now + max(BAN_PAUSE_MS, MAX_BACKOFF_MS))
         while (recent.isNotEmpty() && now - recent.first() >= HOUR_MS) recent.removeFirst()
         var wait = max(0L, lastRequestAt + minIntervalMs - now)
         wait = max(wait, blockedUntil - now)
@@ -129,8 +170,12 @@ class LookupThrottle(
 object RatingCountParser {
     private val RATING_COUNT = Regex("""id="rating_count"[^>]*>\s*([\d,]+)\s*<""")
     private val BAN = Regex("""temporarily banned|ban expires""", RegexOption.IGNORE_CASE)
+    private val SLOW_DOWN = Regex("""opening pages too fast|back down""", RegexOption.IGNORE_CASE)
 
-    class BannedException(message: String) : Exception(message)
+    /** The site asked us to stop: an IP ban, or the "opening pages too fast" warning. */
+    class BannedException(message: String, val pauseMs: Long = LookupThrottle.BAN_PAUSE_MS) : Exception(message)
+
+    const val SLOW_DOWN_PAUSE_MS = 15L * 60 * 1000
 
     /**
      * @return the rating count, or null if the page has none (removed gallery, error page)
@@ -139,7 +184,10 @@ object RatingCountParser {
     fun parse(body: String): Int? {
         // An empty body is how E-Hentai answers a banned IP (see EhEngine.rethrowExactly).
         if (body.isBlank()) throw BannedException("empty response")
-        if (BAN.containsMatchIn(body) && !body.contains("rating_count")) throw BannedException(body.take(200))
+        if (!body.contains("rating_count")) {
+            if (BAN.containsMatchIn(body)) throw BannedException(body.take(200))
+            if (SLOW_DOWN.containsMatchIn(body)) throw BannedException(body.take(200), SLOW_DOWN_PAUSE_MS)
+        }
         return RATING_COUNT.find(body)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull()
     }
 }

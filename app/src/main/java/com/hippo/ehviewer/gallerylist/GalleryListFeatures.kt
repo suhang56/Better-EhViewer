@@ -239,7 +239,35 @@ object GalleryListFeatures {
         },
     )
 
-    private val lookupThrottle = LookupThrottle()
+    private val lookupThrottle = LookupThrottle(
+        saved = runCatching {
+            LookupThrottle.SavedState(
+                Settings.ratingLookupRecent.orEmpty().split(',').mapNotNull { it.toLongOrNull() },
+                Settings.ratingLookupBlockedUntil,
+            )
+        }.getOrNull(),
+    )
+
+    @Volatile
+    private var ratingCountsLoading = false
+
+    /** Call with [lookupThrottle] locked: keeps the hourly cap and a ban pause across restarts. */
+    private fun saveThrottle() {
+        val state = lookupThrottle.savedState()
+        Settings.ratingLookupRecent = state.recent.joinToString(",")
+        Settings.ratingLookupBlockedUntil = state.blockedUntil
+    }
+
+    /** Loads the rating count cache off the main thread, then refreshes the lists. */
+    fun ensureRatingCountsLoaded() {
+        if (ratingCounts.isLoaded || ratingCountsLoading) return
+        ratingCountsLoading = true
+        launchIO {
+            runCatching { ratingCounts.ensureLoaded() }.onFailure { Log.e(TAG, "load rating counts", it) }
+            ratingCountsLoading = false
+            notifyChanged()
+        }
+    }
     private val lookupLock = Any()
 
     /** Galleries the visible list wants a rating count for, nearest to the screen first. */
@@ -252,6 +280,7 @@ object GalleryListFeatures {
     private var lookupJob: Job? = null
 
     private const val LOOKUP_RETRY_MS = 10L * 60 * 1000
+    private const val MAX_SINGLE_WAIT_MS = 60_000L
 
     /** A rating count seen for free (detail page opened, gallery rated). */
     fun onRatingCountKnown(gid: Long, count: Int) {
@@ -265,11 +294,15 @@ object GalleryListFeatures {
      * and throttled by [LookupThrottle].
      */
     fun requestRatingCounts(items: List<Pair<Long, String?>>) {
-        val min = Settings.minRatingCount
-        val needed = if (min > 0) items.filter { (gid, _) -> ratingCounts.needsLookup(gid, min) } else emptyList()
-        synchronized(lookupLock) { wantedRatingCounts = needed }
-        if (needed.isNotEmpty() && lookupJob?.isActive != true) {
-            lookupJob = launchIO { runRatingCountLookups() }
+        // Filtering by cache happens in the worker (IO thread): no database access on the main thread.
+        val needed = if (Settings.minRatingCount > 0) items else emptyList()
+        synchronized(lookupLock) {
+            wantedRatingCounts = needed
+            // Start/exit decisions are made under the same lock, so new work is never stranded
+            // between a worker deciding to stop and this check.
+            if (needed.isNotEmpty() && lookupJob?.isActive != true) {
+                lookupJob = launchIO { runRatingCountLookups() }
+            }
         }
     }
 
@@ -278,11 +311,17 @@ object GalleryListFeatures {
         synchronized(lookupLock) { wantedRatingCounts = emptyList() }
     }
 
+    /** Next gallery to look up; null means the worker stops (and is then marked as gone, under the lock). */
     private fun nextLookup(now: Long): Pair<Long, String?>? = synchronized(lookupLock) {
         val min = Settings.minRatingCount
-        if (min <= 0) return@synchronized null
         failedLookups.entries.removeAll { now - it.value !in 0..LOOKUP_RETRY_MS }
-        wantedRatingCounts.firstOrNull { (gid, _) -> gid !in failedLookups && ratingCounts.needsLookup(gid, min) }
+        val next = if (min <= 0) {
+            null
+        } else {
+            wantedRatingCounts.firstOrNull { (gid, _) -> gid !in failedLookups && ratingCounts.needsLookup(gid, min) }
+        }
+        if (next == null) lookupJob = null
+        next
     }
 
     private suspend fun runRatingCountLookups() {
@@ -290,25 +329,33 @@ object GalleryListFeatures {
             val (gid, token) = nextLookup(System.currentTimeMillis()) ?: return
             val wait = synchronized(lookupThrottle) { lookupThrottle.delayBeforeNext() }
             if (wait > 0) {
-                // Re-check what is wanted after waiting: the user may have scrolled or left.
-                delay(wait)
+                // Re-check what is wanted after (at most a minute of) waiting: the user may have scrolled or left.
+                delay(wait.coerceAtMost(MAX_SINGLE_WAIT_MS))
                 continue
             }
-            synchronized(lookupThrottle) { lookupThrottle.onRequest() }
+            synchronized(lookupThrottle) {
+                lookupThrottle.onRequest()
+                saveThrottle()
+            }
             try {
                 val count = EhEngine.getRatingCount(gid, token)
-                synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
                 if (count != null) {
+                    synchronized(lookupThrottle) { lookupThrottle.onSuccess() }
                     ratingCounts.record(gid, count)
                     notifyChanged()
                 } else {
+                    // Not a gallery page (removed gallery, unexpected page): slow down, skip this one.
+                    synchronized(lookupThrottle) { lookupThrottle.onFailure() }
                     synchronized(lookupLock) { failedLookups[gid] = System.currentTimeMillis() }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RatingCountParser.BannedException) {
-                Log.w(TAG, "E-Hentai reports an IP ban, pausing rating count lookups", e)
-                synchronized(lookupThrottle) { lookupThrottle.onBanned() }
+                Log.w(TAG, "E-Hentai asks to stop (ban / too fast), pausing rating count lookups for ${e.pauseMs / 60000} min", e)
+                synchronized(lookupThrottle) {
+                    lookupThrottle.onBanned(e.pauseMs)
+                    saveThrottle()
+                }
             } catch (e: Throwable) {
                 Log.w(TAG, "Rating count lookup of $gid failed", e)
                 synchronized(lookupThrottle) { lookupThrottle.onFailure() }

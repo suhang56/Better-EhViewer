@@ -90,6 +90,8 @@ object Settings {
     const val FOLD_PREFERRED_LANGUAGE_NONE = "none"
     const val KEY_CLOUD_FAVORITES_SYNC = "cloud_favorites_sync"
     const val KEY_MIN_RATING_COUNT = "min_rating_count"
+    private const val KEY_RATING_LOOKUP_RECENT = "rating_lookup_recent"
+    private const val KEY_RATING_LOOKUP_BLOCKED_UNTIL = "rating_lookup_blocked_until"
     private const val DEFAULT_MIN_RATING_COUNT = 0
     private const val KEY_CLOUD_FAV_LAST_FULL_SYNC = "cloud_fav_last_full_sync"
     private const val KEY_CLOUD_FAV_LAST_ATTEMPT = "cloud_fav_last_attempt"
@@ -498,6 +500,15 @@ object Settings {
     /** Hide galleries with fewer ratings than this in gallery lists; 0 = off. */
     val minRatingCount: Int
         get() = getIntFromStr(KEY_MIN_RATING_COUNT, DEFAULT_MIN_RATING_COUNT).coerceAtLeast(0)
+
+    /** Rating-count lookup throttle state, kept across restarts: "t1,t2,..." and a pause end. */
+    var ratingLookupRecent: String?
+        get() = getString(KEY_RATING_LOOKUP_RECENT, null)
+        set(value) = putString(KEY_RATING_LOOKUP_RECENT, value)
+
+    var ratingLookupBlockedUntil: Long
+        get() = getLong(KEY_RATING_LOOKUP_BLOCKED_UNTIL, 0)
+        set(value) = putLong(KEY_RATING_LOOKUP_BLOCKED_UNTIL, value)
 
     var cloudFavLastFullSync: Long
         get() = getLong(KEY_CLOUD_FAV_LAST_FULL_SYNC, 0)

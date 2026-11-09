@@ -145,6 +145,80 @@ class RatingCountTest {
     }
 
     @Test
+    fun hidingTheFirstListedVersionKeepsTheGroupInPlace() {
+        val list = listOf(
+            entry(1, "[Other] First Work"),
+            entry(10, "[作者] タイトル"),
+            entry(11, "[Other] Second Work"),
+            entry(13, "[Artist] Title [Chinese]", titleJpn = "[作者] タイトル [中国翻訳]", lang = "ZH"),
+            entry(14, "[Artist] Title [English]", titleJpn = "[作者] タイトル [英訳]", lang = "EN"),
+        )
+        val options = GalleryListProjector.Options(hideFavorites = false, foldVersions = true, preferredLanguage = "EN", minRatingCount = 10)
+        val before = GalleryListProjector.project(list, options, { FavoriteState.NOT_FAVORITED }, ratingCountOf = { null })
+        val after = GalleryListProjector.project(list, options, { FavoriteState.NOT_FAVORITED }, ratingCountOf = { if (it == 10L) 1 else null })
+        // The group stays at row 1 with the same identity; only the hidden version is gone.
+        assertEquals(1, before.rows.indexOfFirst { it.groupKey == 10L })
+        assertEquals(1, after.rows.indexOfFirst { it.groupKey == 10L })
+        assertEquals(before.rows[1].stableId, after.rows[1].stableId)
+        assertEquals(2, after.rows[1].groupSize)
+        assertFalse(after.rows.any { it.gid == 10L })
+        assertEquals(1, after.hiddenLowRatingCount)
+    }
+
+    @Test
+    fun staleLowCountIsTreatedAsUnknownAndRechecked() {
+        var now = 1_000L
+        val cache = RatingCountCache(MemoryPersistence(), clock = { now })
+        cache.record(5, 2)
+        assertEquals(2, cache.knownCountOf(5, 50))
+        now += RatingCountCache.RECHECK_AFTER_MS + 1
+        // Stale and below the threshold: shown again (unknown) so it can be looked up when visible.
+        assertNull(cache.knownCountOf(5, 50))
+        assertTrue(cache.needsLookup(5, 50))
+        cache.record(6, 900)
+        now += 10L * RatingCountCache.RECHECK_AFTER_MS
+        assertEquals(900, cache.knownCountOf(6, 50))
+    }
+
+    @Test
+    fun unknownFavoritesOnlyCountListedGalleries() {
+        val list = listOf(entry(1, "[A] One"), entry(2, "[A] Two"))
+        val p = GalleryListProjector.project(
+            list,
+            GalleryListProjector.Options(hideFavorites = true, foldVersions = false, preferredLanguage = null, minRatingCount = 10),
+            favoriteState = { FavoriteState.UNKNOWN },
+            ratingCountOf = { if (it == 1L) 0 else null },
+        )
+        assertEquals(1, p.unknownFavorites)
+    }
+
+    @Test
+    fun throttleSurvivesRestartAndClampsClockJumps() {
+        var now = 10L * 60 * 60 * 1000
+        val first = LookupThrottle(minIntervalMs = 1200, maxPerHour = 2, clock = { now })
+        first.onRequest()
+        now += 1200
+        first.onRequest()
+        first.onBanned(5_000)
+        // "Process restart": a new throttle from the saved state keeps the cap and the pause.
+        val restored = LookupThrottle(minIntervalMs = 1200, maxPerHour = 2, clock = { now }, saved = first.savedState())
+        assertTrue(restored.delayBeforeNext() > 5_000)
+        // Clock moved back one day: no waiting for timestamps in the future.
+        now -= 24L * 60 * 60 * 1000
+        assertTrue(restored.delayBeforeNext() <= LookupThrottle.BAN_PAUSE_MS)
+    }
+
+    @Test
+    fun slowDownPageIsReported() {
+        try {
+            RatingCountParser.parse("You are opening pages too fast, thus placing a heavy load on the server. Back down, or your IP address will be automatically banned.")
+            throw AssertionError("expected BannedException")
+        } catch (e: RatingCountParser.BannedException) {
+            assertEquals(RatingCountParser.SLOW_DOWN_PAUSE_MS, e.pauseMs)
+        }
+    }
+
+    @Test
     fun ratingCountFilterOffIsIdentity() {
         val options = GalleryListProjector.Options(hideFavorites = false, foldVersions = false, preferredLanguage = null, minRatingCount = 0)
         assertTrue(options.isIdentity)

@@ -374,11 +374,13 @@ class UiEndToEndTest {
     fun step6MinRatingCount() = uiTest("step6MinRatingCount") { r ->
         // A threshold no gallery reaches: every gallery whose count is looked up must disappear.
         AppUi.prepare(hide = false, fold = false, listMode = AppUi.LIST_MODE_LIST, minRatingCount = 100_000)
+        // The first page as the site serves it (lookups start as soon as the list shows, so the
+        // UI rows may already be partly filtered when the test reads them).
+        val initial = Live.fetchList(r, Live.searchUrl("artist:shindol$")).galleryInfoList.map { it.gid }
         val marker = Logcat.mark()
         AppUi.launch(Live.searchUrl("artist:shindol$"))
         if (!AppUi.waitForRows(r, 1)) r.fail("gallery list did not load")
-        val initial = AppUi.rows().map { it.gid }
-        r.fact("initial rows: ${initial.size}, first/last visible ${AppUi.firstVisible()}/${AppUi.lastVisible()}")
+        r.fact("first page: ${initial.size} galleries; rows on screen now ${AppUi.rows().size}, first/last visible ${AppUi.firstVisible()}/${AppUi.lastVisible()}")
         Thread.sleep(20_000)
         val lookups = Logcat.ratingLookupsSince(marker)
         r.fact("rating count lookups in ~20 s: ${lookups.size}: ${lookups.map { it.second }}")
@@ -394,7 +396,8 @@ class UiEndToEndTest {
         r.check(everListed.containsAll(gids), "only galleries of this list were looked up")
         // Only rows near the screen: the first lookup targets must be at the top of the list.
         val firstTargets = gids.take(5)
-        r.check(firstTargets.all { initial.indexOf(it) in 0..(AppUi.lastVisible().coerceAtLeast(5) + 10 + gids.size) }, "lookups start with rows on or near the screen: positions ${firstTargets.map { initial.indexOf(it) }}")
+        r.check(firstTargets.all { initial.indexOf(it) in 0..(AppUi.lastVisible().coerceAtLeast(5) + 4 + gids.size) }, "lookups start with rows on or near the screen: positions ${firstTargets.map { initial.indexOf(it) }}")
+        r.check(gids.map { initial.indexOf(it) }.filter { it >= 0 } == gids.map { initial.indexOf(it) }.filter { it >= 0 }.sorted(), "lookups go from the top of the list downwards: ${gids.map { initial.indexOf(it) }}")
         val rowsNow = AppUi.rows().map { it.gid }
         val stillShown = gids.filter { it in rowsNow }
         r.check(stillShown.isEmpty(), "every looked-up gallery (all below 100000 ratings) is hidden: still shown $stillShown")
@@ -415,7 +418,7 @@ class UiEndToEndTest {
         PreferenceManager.getDefaultSharedPreferences(AppUi.context).edit().putString(Settings.KEY_MIN_RATING_COUNT, "0").commit()
         AppUi.launch(Live.searchUrl("artist:shindol$"))
         AppUi.waitForRows(r, 1)
-        r.check(AppUi.waitUntil(15_000) { AppUi.rows().size >= initial.size }, "with the filter off all ${initial.size} galleries are listed again (${AppUi.rows().size})")
+        r.check(AppUi.waitUntil(15_000) { AppUi.rows().map { it.gid }.containsAll(initial) }, "with the filter off all ${initial.size} galleries of the first page are listed again (${AppUi.rows().size} rows)")
         val offMarker = Logcat.mark()
         Thread.sleep(5_000)
         r.check(Logcat.ratingLookupsSince(offMarker).isEmpty(), "no lookups when the filter is off")

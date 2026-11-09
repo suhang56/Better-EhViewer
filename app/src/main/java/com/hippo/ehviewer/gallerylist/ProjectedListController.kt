@@ -64,7 +64,15 @@ internal class ProjectedListController(
             chainRootOf = chains::rootOf,
             newestOf = chains::newestOf,
             expandedGids = expandedGids,
-            ratingCountOf = { gid -> if (options.minRatingCount > 0) ratingCounts.countOf(gid) else null },
+            ratingCountOf = { gid ->
+                when {
+                    options.minRatingCount <= 0 -> null
+                    // Never read the database on the main thread: unknown until loaded in the background.
+                    !ratingCounts.isLoaded -> null.also { GalleryListFeatures.ensureRatingCountsLoaded() }
+                    // Stale low counts count as unknown, so the gallery is shown and re-checked.
+                    else -> ratingCounts.knownCountOf(gid, options.minRatingCount)
+                }
+            },
         )
     }
 

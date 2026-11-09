@@ -194,22 +194,31 @@ class GalleryListScene :
         }
     }
 
+    private val mRequestRatingCountsRunnable = Runnable { requestRatingCountsForVisibleRows() }
+
     /**
      * Asks for the rating counts of the galleries on screen (plus a few below), nearest first.
      * Nothing else is ever looked up, so the extra requests follow what the user actually sees.
      */
     private fun requestRatingCountsForVisibleRows() {
-        val controller = mListController ?: return
-        val helper = mHelper ?: return
-        val recyclerView = mRecyclerView ?: return
-        if (!controller.isActive || controller.options.minRatingCount <= 0 || !isResumed) {
+        val controller = mListController
+        val helper = mHelper
+        val layoutManager = mRecyclerView?.layoutManager
+        // Only a list that is really on screen may cause lookups: not while loading a new search,
+        // showing a tip/error, or with the search panel open.
+        if (controller == null || helper == null || layoutManager == null || !controller.isActive ||
+            controller.options.minRatingCount <= 0 || !isResumed || helper.shownViewIndex != 0 ||
+            mState == STATE_SEARCH || controller.size() == 0
+        ) {
             GalleryListFeatures.clearRatingCountRequests()
             return
         }
-        val layoutManager = recyclerView.layoutManager ?: return
         val first = LayoutManagerUtils.getFirstVisibleItemPosition(layoutManager).coerceAtLeast(0)
         val last = LayoutManagerUtils.getLastVisibleItemPosition(layoutManager)
-        if (last < 0) return
+        if (last < 0) {
+            GalleryListFeatures.clearRatingCountRequests()
+            return
+        }
         val end = (last + RATING_COUNT_LOOKAHEAD).coerceAtMost(controller.size() - 1)
         val items = (first..end).mapNotNull { row ->
             helper.getDataAtEx(controller.dataIndex(row))?.let { it.gid to it.token }
@@ -230,6 +239,12 @@ class GalleryListScene :
                 }
             }
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                // Fast-scroller drags, jumps and expanding groups move the visible rows without a
+                // scroll-idle event: ask for their rating counts once things settle.
+                if ((mListController?.options?.minRatingCount ?: 0) > 0) {
+                    recyclerView.removeCallbacks(mRequestRatingCountsRunnable)
+                    recyclerView.postDelayed(mRequestRatingCountsRunnable, RATING_COUNT_REQUEST_DEBOUNCE_MS)
+                }
                 if (dy >= mHideActionFabSlop) {
                     hideActionFab()
                 } else if (dy <= -mHideActionFabSlop / 2) {
@@ -1661,6 +1676,10 @@ class GalleryListScene :
             }
             mPendingTaskType = type
             mInFlightTaskId = taskId
+            if (type == TYPE_REFRESH || type == TYPE_SOMEWHERE) {
+                // A new list replaces this one: its galleries are no longer wanted.
+                GalleryListFeatures.clearRatingCountRequests()
+            }
             if (type != TYPE_NEXT_PAGE_KEEP_POS) {
                 // Refresh, jump, previous page: user actions restore the auto-load budget.
                 mListController?.autoLoadPolicy?.onUserAction()
@@ -1930,7 +1949,10 @@ class GalleryListScene :
         const val KEY_HAS_FIRST_REFRESH = "has_first_refresh"
         const val KEY_STATE = "state"
         private const val KEY_EXPANDED_GIDS = "expanded_gids"
-        private const val RATING_COUNT_LOOKAHEAD = 10
+
+        /** Rows below the screen whose count is fetched after all on-screen rows (nearest first). */
+        private const val RATING_COUNT_LOOKAHEAD = 4
+        private const val RATING_COUNT_REQUEST_DEBOUNCE_MS = 250L
         private const val KEY_PROJECTION_TIP = "projection_tip"
         private const val BACK_PRESSED_INTERVAL = 2000
         private const val STATE_NORMAL = 0
