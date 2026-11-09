@@ -398,6 +398,8 @@ class UiEndToEndTest {
         val firstTargets = gids.take(5)
         r.check(firstTargets.all { initial.indexOf(it) in 0..(AppUi.lastVisible().coerceAtLeast(5) + 4 + gids.size) }, "lookups start with rows on or near the screen: positions ${firstTargets.map { initial.indexOf(it) }}")
         r.check(gids.map { initial.indexOf(it) }.filter { it >= 0 } == gids.map { initial.indexOf(it) }.filter { it >= 0 }.sorted(), "lookups go from the top of the list downwards: ${gids.map { initial.indexOf(it) }}")
+        // The log line is written when a lookup is SENT: let the last response arrive and be applied.
+        Thread.sleep(3_000)
         val rowsNow = AppUi.rows().map { it.gid }
         val stillShown = gids.filter { it in rowsNow }
         r.check(stillShown.isEmpty(), "every looked-up gallery (all below 100000 ratings) is hidden: still shown $stillShown")
