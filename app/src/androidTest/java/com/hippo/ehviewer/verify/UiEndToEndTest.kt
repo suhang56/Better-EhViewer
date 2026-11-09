@@ -401,11 +401,13 @@ class UiEndToEndTest {
         val rowsNow = AppUi.rows().map { it.gid }
         val stillShown = gids.filter { it in rowsNow }
         r.check(stillShown.isEmpty(), "every looked-up gallery (all below 100000 ratings) is hidden: still shown $stillShown")
-        val initialLeft = initial.filter { it in rowsNow }
-        r.check(initialLeft == initial.filter { it !in gids }, "of the first page exactly the looked-up galleries are gone: ${initial.size} -> ${initialLeft.size} (looked up ${gids.count { it in initial }})")
-        val unknown = initial.filter { it !in gids }
-        r.check(unknown.all { it in rowsNow }, "galleries not looked up yet stay visible (${unknown.size})")
-
+        // A gallery is hidden exactly when its count is known (looked up now, or cached earlier, e.g. by
+        // the rating count test or a detail page opened in step 1): all known counts are < 100000.
+        val known = initial.filter { GalleryListFeatures.ratingCounts.countOf(it) != null }
+        val cachedBefore = known.filter { it !in gids }
+        r.fact("first page: ${gids.count { it in initial }} looked up now, ${cachedBefore.size} known from the cache, ${initial.size - known.size} unknown")
+        r.check(initial.filter { it !in rowsNow } == known, "of the first page exactly the galleries with a known count are hidden: ${initial.size} -> ${initial.count { it in rowsNow }}")
+        r.check(initial.filter { it !in known }.all { it in rowsNow }, "galleries whose count is still unknown stay visible (${initial.size - known.size})")
         // Leaving the list stops lookups.
         device.pressHome()
         Thread.sleep(1500)
